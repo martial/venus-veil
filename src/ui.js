@@ -4,7 +4,7 @@ import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
  * lil-gui control panel. Every control writes straight into the live params
  * objects; `apply` callbacks push values that need a re-upload.
  */
-export function createUI({ wind, solver, material, studio, post, actions, sculpture }) {
+export function createUI({ wind, solver, material, studio, post, actions, sculpture, projector }) {
   const gui = new GUI({ title: 'venus veil', width: 290 });
   gui.domElement.classList.add('veil-gui');
 
@@ -72,11 +72,17 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
     sculpture.buildControls(fSculpt);
   }
 
+  let fProject = null;
+  if (projector) {
+    fProject = gui.addFolder('Projection');
+    projector.buildControls(fProject);
+  }
+
   const fActions = gui.addFolder('Actions');
   fActions.add(actions, 'pause').name('pause / resume  (space)');
   fActions.add(actions, 'reset').name('reset cloth  (R)');
   fActions.add(actions, 'capture').name('save PNG  (S)');
   fActions.add(actions, 'toggleUI').name('hide UI  (H)');
 
-  return { gui, folders: { fWind, fCloth, fSurf, fLight, fSculpt, fActions } };
+  return { gui, folders: { fWind, fCloth, fSurf, fLight, fSculpt, fProject, fActions } };
 }

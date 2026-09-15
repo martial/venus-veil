@@ -41,3 +41,37 @@ Tuning tips: **Wind › turbulence / eddy size** make folds; **Cloth › softnes
 make the sheet crumple more; **Surface › edge glow / back-light** are the organza look;
 **Light › key / beam / exposure** set the mood; **Sculpture › relief / shape retention**
 control how strongly the body holds its form against the wind.
+
+## Live projection
+
+The veil's depth, seen from a projector at your viewpoint, feeds a local one-step
+diffusion model; the generated image comes back as light on the cloth, with fold
+occlusion, and also plays on the round screen beside the veil.
+
+```
+npm run projector:setup   # once: Python env + Core ML models (Apple Silicon)
+npm run projector         # service on 127.0.0.1:5193, ~30 s to load
+```
+
+Then open **Projection › live projection** in the panel, or `http://127.0.0.1:5190/?projector`.
+The published page can use the same local service (Chrome may ask to allow local network access).
+
+- **Model:** SDXS DreamShaper with its sketch ControlNet and tiny VAE, compiled to Core ML.
+  The ControlNet is sketch-trained, so the veil's silhouette and fold edges are extracted
+  from depth. With a sculpture loaded, its relief is part of that depth, so the body guides
+  the image. Measured here: about 35 ms per frame on an M3 Pro, around 25 generated frames per second.
+- **Modes:** *woven into fabric* keeps each image on the fabric points it was generated for,
+  so the cloth runs at full frame rate while the light rides the folds. *Physical projector*
+  keeps the image fixed in projector space and re-rasterises occlusion every frame.
+  *Frame-locked pairs* advances the cloth 1/30 s per generated frame, so every pose is
+  exactly the pose its image was made from.
+- **Every image is committed atomically** with its capture pose, projector matrix and depth
+  buffer into one of two slots, which crossfade (**frame blend**).
+- **Material wandering** blends the prompt through limestone, ivory, mother of pearl and
+  smoky glass. **Calibration grid** checks placement and occlusion.
+- `src/projection/rasterDepth.js` rasterises the veil's depth on the CPU (about 0.6 ms at
+  256 px) to avoid a GPU readback stall; the request is binary (depth bytes in, raw RGBA out).
+- Tests: `npm test` covers the rasteriser and protocol; `npm run test:server` covers the
+  service's request parsing, CORS and private-network preflight without loading the model.
+
+Adapted from the live projection study in the sibling `veil-ribbon-lab` project.

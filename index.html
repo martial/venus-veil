@@ -41,6 +41,15 @@
       .lil-gui { --background-color: rgba(10, 10, 12, 0.82) !important; --widget-color: rgba(255,255,255,0.06) !important; --hover-color: rgba(255,255,255,0.1) !important; --focus-color: rgba(255,255,255,0.14) !important; --number-color: #d8c8a6 !important; --string-color: #d8c8a6 !important; --text-color: #d9d3c8 !important; --title-background-color: rgba(20, 18, 16, 0.9) !important; --font-family: "Helvetica Neue", Helvetica, Arial, sans-serif !important; --font-size: 11px !important; --input-font-size: 11px !important; backdrop-filter: blur(10px); border: 1px solid rgba(232, 220, 200, 0.12); }
       .lil-gui.root { top: 16px !important; right: 16px !important; max-height: calc(100vh - 32px); overflow: auto; }
       input[type=file] { display: none; }
+      #projector-panel { left: 28px; bottom: 148px; width: 244px; }
+      #projector-panel[hidden] { display: none; }
+      #projector-panel .pp-row { display: flex; gap: 8px; }
+      #projector-panel figure { margin: 0; }
+      #projector-panel .pp-row canvas { width: 118px; height: 118px; display: block; border: 1px solid var(--line); background: #060607; }
+      #projector-panel figcaption { font-size: 10px; color: var(--muted); margin-top: 4px; letter-spacing: 0.3px; }
+      #pp-strip { display: flex; gap: 4px; margin-top: 8px; height: 36px; }
+      #pp-strip canvas { width: 36px; height: 36px; border: 1px solid var(--line); display: block; }
+      #pp-status { margin-top: 8px; font-size: 10px; color: #b9ad97; line-height: 1.4; }
     </style>
   </head>
   <body>
@@ -48,6 +57,14 @@
     <div id="title" class="chrome"><h1>Venus Veil</h1><p>A form held by air</p></div>
     <div id="progress" class="chrome"><div id="progress-label">loading depth model…</div><div id="progress-track"><div id="progress-bar"></div></div></div>
     <div id="thumbs" class="chrome" hidden><canvas id="thumb-photo" width="144" height="144" title="photo"></canvas><canvas id="thumb-depth" width="144" height="144" title="depth"></canvas><canvas id="thumb-mask" width="144" height="144" title="mask"></canvas></div>
+    <div id="projector-panel" class="chrome" hidden>
+      <div class="pp-row">
+        <figure><canvas id="pp-depth" width="256" height="256"></canvas><figcaption>veil depth · projector view</figcaption></figure>
+        <figure><canvas id="pp-output" width="256" height="256"></canvas><figcaption id="pp-output-label">output</figcaption></figure>
+      </div>
+      <div id="pp-strip"></div>
+      <div id="pp-status">projector offline</div>
+    </div>
     <div id="footer" class="chrome">
       <span id="drop-hint">Drop a sculpture photo anywhere<i>·</i>drag to orbit<i>·</i>move the pointer through the veil to push it</span>
       <span><span id="state">live</span><i>·</i><span id="fps">— fps</span></span>

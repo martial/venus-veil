@@ -1,0 +1,11 @@
+# Local projector service (Apple Silicon). Pins match a known-working Core ML stack.
+torch==2.5.1
+coremltools==8.3.0
+diffusers==0.32.2
+transformers==4.46.3
+numpy>=1.26,<2
+accelerate>=1,<2
+fastapi>=0.115,<1
+uvicorn>=0.34,<1
+pillow>=11,<13
+httpx>=0.27,<1   # tests only

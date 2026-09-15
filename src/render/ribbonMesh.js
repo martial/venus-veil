@@ -21,6 +21,12 @@ export function createRibbonMesh(solver, material) {
   geometry.setAttribute('normal', normal);
   geometry.setAttribute('aDensity', density);
   geometry.setAttribute('uv', new THREE.BufferAttribute(shape.uv, 2));
+  // capture-time positions for the two live-projection slots (see projection/projector.js)
+  for (const name of ['aCap0', 'aCap1']) {
+    const attribute = new THREE.BufferAttribute(Float32Array.from(solver.pos), 3);
+    attribute.setUsage(THREE.DynamicDrawUsage);
+    geometry.setAttribute(name, attribute);
+  }
 
   const indices = new Uint32Array(columns * rows * 6);
   let k = 0;

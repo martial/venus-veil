@@ -92,6 +92,21 @@ export function createVeilMaterial(weave, overrides = {}) {
     uBacklightForward: { value: d.backlightForward },
     uBacklightSharpness: { value: d.backlightSharpness },
     uDensityOcclusion: { value: d.densityOcclusion },
+    // live projection (active only with the VEIL_PROJECTION define)
+    uProjMap0: { value: null },
+    uProjMap1: { value: null },
+    uProjDepth0: { value: null },
+    uProjDepth1: { value: null },
+    uProjDepthLive: { value: null },
+    uProjMat0: { value: new THREE.Matrix4() },
+    uProjMat1: { value: new THREE.Matrix4() },
+    uProjHas0: { value: 0 },
+    uProjHas1: { value: 0 },
+    uProjMix: { value: 0 },
+    uProjLive: { value: 0 },
+    uProjPower: { value: 1.3 },
+    uProjCatch: { value: 0.55 },
+    uProjBias: { value: 0.03 },
   };
 
   const material = new THREE.MeshPhysicalMaterial({
@@ -122,8 +137,27 @@ export function createVeilMaterial(weave, overrides = {}) {
     Object.assign(shader.uniforms, uniforms);
 
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aDensity;\nvarying float vDensity;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvDensity = aDensity;');
+      .replace('#include <common>', /* glsl */`#include <common>
+        attribute float aDensity;
+        varying float vDensity;
+        #ifdef VEIL_PROJECTION
+          attribute vec3 aCap0;
+          attribute vec3 aCap1;
+          uniform mat4 uProjMat0;
+          uniform mat4 uProjMat1;
+          uniform float uProjLive;
+          varying vec4 vProj0;
+          varying vec4 vProj1;
+        #endif`)
+      .replace('#include <begin_vertex>', /* glsl */`#include <begin_vertex>
+        vDensity = aDensity;
+        #ifdef VEIL_PROJECTION
+          // woven: the image stays on the fabric point it was generated for (capture position)
+          // physical projector: the image stays in projector space (current position)
+          vec3 veilWorldNow = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;
+          vProj0 = uProjMat0 * vec4( mix( aCap0, veilWorldNow, uProjLive ), 1.0 );
+          vProj1 = uProjMat1 * vec4( mix( aCap1, veilWorldNow, uProjLive ), 1.0 );
+        #endif`);
 
     const lightsBegin = THREE.ShaderChunk.lights_fragment_begin.replaceAll(RE_DIRECT_CALL, RE_DIRECT_CALL + /* glsl */`
       {
@@ -146,7 +180,32 @@ export function createVeilMaterial(weave, overrides = {}) {
         uniform float uBacklightForward;
         uniform float uBacklightSharpness;
         uniform float uDensityOcclusion;
-        vec3 veilBacklight = vec3( 0.0 );`)
+        vec3 veilBacklight = vec3( 0.0 );
+        #ifdef VEIL_PROJECTION
+          varying vec4 vProj0;
+          varying vec4 vProj1;
+          uniform sampler2D uProjMap0;
+          uniform sampler2D uProjMap1;
+          uniform sampler2D uProjDepth0;
+          uniform sampler2D uProjDepth1;
+          uniform sampler2D uProjDepthLive;
+          uniform float uProjHas0;
+          uniform float uProjHas1;
+          uniform float uProjMix;
+          uniform float uProjLive;
+          uniform float uProjPower;
+          uniform float uProjCatch;
+          uniform float uProjBias;
+          vec3 veilProjectSample( vec4 clipPos, sampler2D map, sampler2D slotDepth ) {
+            if ( clipPos.w <= 0.0 ) return vec3( 0.0 );
+            vec2 uv = clipPos.xy / clipPos.w * 0.5 + 0.5;
+            if ( uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0 ) return vec3( 0.0 );
+            // occlusion: only the fold nearest to the projector receives light
+            float stored = mix( texture2D( slotDepth, uv ).r, texture2D( uProjDepthLive, uv ).r, uProjLive );
+            float visible = 1.0 - smoothstep( uProjBias, uProjBias * 3.0, clipPos.w - stored );
+            return texture2D( map, uv ).rgb * visible;
+          }
+        #endif`)
       .replace('#include <lights_fragment_begin>', lightsBegin)
       .replace('#include <opaque_fragment>', /* glsl */`
         float veilNdotV = abs( dot( geometryNormal, geometryViewDir ) );
@@ -154,12 +213,22 @@ export function createVeilMaterial(weave, overrides = {}) {
         diffuseColor.a = mix( diffuseColor.a, 1.0, veilFresnel * uFresnelAlpha );
         diffuseColor.a = saturate( diffuseColor.a * ( 1.0 + uDensityGain * vDensity ) );
         vec3 veilGlow = veilBacklight * uBacklightColor * uBacklightStrength * diffuseColor.rgb;
+        vec3 veilProjected = vec3( 0.0 );
+        #ifdef VEIL_PROJECTION
+          vec3 veilP0 = uProjHas0 > 0.5 ? veilProjectSample( vProj0, uProjMap0, uProjDepth0 ) : vec3( 0.0 );
+          vec3 veilP1 = uProjHas1 > 0.5 ? veilProjectSample( vProj1, uProjMap1, uProjDepth1 ) : vec3( 0.0 );
+          veilProjected = mix( veilP0, veilP1, uProjMix ) * uProjPower;
+        #endif
         #include <opaque_fragment>`)
       .replace('#include <premultiplied_alpha_fragment>', /* glsl */`
         #include <premultiplied_alpha_fragment>
-        gl_FragColor.rgb += veilGlow * 0.5;`);
+        gl_FragColor.rgb += veilGlow * 0.5;
+        #ifdef VEIL_PROJECTION
+          // projected light scatters in the fabric: sheer areas catch less, folds catch it all
+          gl_FragColor.rgb += veilProjected * mix( uProjCatch, 1.0, diffuseColor.a );
+        #endif`);
   };
-  material.customProgramCacheKey = () => 'venus-veil-v1';
+  material.customProgramCacheKey = () => `venus-veil-v2${material.defines?.VEIL_PROJECTION ? '-projection' : ''}`;
   material.userData.uniforms = uniforms;
   material.userData.defaults = d;
   material.userData.weave = weave || null;

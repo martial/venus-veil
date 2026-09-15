@@ -10,6 +10,7 @@ import { createStudio } from './render/studio.js';
 import { createPost } from './render/post.js';
 import { createUI } from './ui.js';
 import { createSculpturePipeline } from './pipeline/sculpture.js';
+import { createProjector } from './projection/projector.js';
 
 const $ = id => document.getElementById(id);
 
@@ -71,6 +72,22 @@ async function start() {
     dropHint: $('drop-hint'), fileInput: $('file-input'),
   } });
 
+  // live projection (local diffusion service, see server/server.py)
+  const projector = createProjector({
+    renderer, scene, viewer: camera, solver, ribbon, material, toast,
+    stepFrame: seconds => {
+      const steps = Math.round(seconds / stepper.dt);
+      wind.update(solver.time, seconds);
+      for (let s = 0; s < steps; s++) solver.step(stepper.dt, wind.sampleAt);
+      solver.updateDensity();
+      sculpture.update(seconds);
+    },
+    elements: {
+      panel: $('projector-panel'), depthCanvas: $('pp-depth'), outputCanvas: $('pp-output'),
+      outputLabel: $('pp-output-label'), strip: $('pp-strip'), status: $('pp-status'),
+    },
+  });
+
   // resize
   const resize = () => {
     const w = viewport.clientWidth, h = viewport.clientHeight;
@@ -122,7 +139,7 @@ async function start() {
     },
     toggleUI() { document.body.classList.toggle('ui-hidden'); },
   };
-  const ui = createUI({ wind, solver, material, studio, post, actions, sculpture });
+  const ui = createUI({ wind, solver, material, studio, post, actions, sculpture, projector });
   window.addEventListener('keydown', e => {
     if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.code === 'Space') { e.preventDefault(); actions.pause(); }
@@ -139,7 +156,9 @@ async function start() {
     timer.update();
     const frameDt = timer.getDelta();
     const t = timer.getElapsed();
-    if (!paused) {
+    if (!paused && projector.locksSimulation) {
+      stepper.reset();   // the projector advances 1/30 s per generated frame
+    } else if (!paused) {
       const steps = stepper.advance(frameDt);
       if (steps > 0) {
         wind.update(t, frameDt);
@@ -150,6 +169,7 @@ async function start() {
     }
     ribbon.sync();
     controls.update();
+    projector.update(Math.min(frameDt, 0.1));
     studio.update(t);
     post.render(t);
     frames++;
@@ -167,9 +187,13 @@ async function start() {
   $('loading').classList.add('loaded');
   renderer.setAnimationLoop(animate);
   sculpture.loadSample();
+  if (new URLSearchParams(location.search).has('projector')) {
+    projector.setEnabled(true);
+    ui.gui.controllersRecursive().forEach(c => c.updateDisplay());
+  }
 
   window.__veil = {
-    solver, wind, material, studio, post, camera, controls, sculpture, renderer, ribbon, stepper,
+    solver, wind, material, studio, post, camera, controls, sculpture, renderer, ribbon, stepper, projector,
     /** Advance the simulation by `seconds` of wind and render one frame (for headless checks). */
     simulate(seconds = 3, t0 = 0) {
       const dt = stepper.dt, steps = Math.round(seconds / dt);
@@ -184,11 +208,13 @@ async function start() {
     stats: () => ({
       fps, paused, time: solver.time, particles: solver.count, constraints: solver.constraintCount,
       strain: solver.maxStretchStrain(), depthBackend: sculpture.backend, hasRelief: !!solver.relief,
+      projector: { enabled: projector.params.enabled, mode: projector.params.mode, status: projector.state.status,
+        presented: projector.state.presented, generatedFps: +projector.state.fps.toFixed(1), latencyMs: Math.round(projector.state.latencyMs) },
     }),
   };
 
   if (import.meta.hot) import.meta.hot.dispose(() => {
-    renderer.setAnimationLoop(null); controls.dispose(); studio.dispose(); post.dispose(); ribbon.dispose();
+    renderer.setAnimationLoop(null); controls.dispose(); projector.dispose(); studio.dispose(); post.dispose(); ribbon.dispose();
     material.dispose(); weave.normal.dispose(); weave.alpha.dispose(); sculpture.dispose(); ui.gui.destroy(); renderer.dispose();
   });
 }
