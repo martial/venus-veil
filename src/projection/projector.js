@@ -181,9 +181,12 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       state.error = h.error;
       state.model = h.model;
       state.device = h.device;
-    } catch {
+    } catch (error) {
       state.status = 'offline';
       state.error = null;
+      // a public page waits on Chrome's local-network permission before reaching 127.0.0.1
+      const localPage = ['127.0.0.1', 'localhost'].includes(location.hostname);
+      state.hint = !localPage && error?.name === 'TimeoutError' ? 'permission' : null;
     } finally {
       healthBusy = false;
       report();
@@ -341,6 +344,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     if (++reportTick % 4 !== 0 && state.status === 'ready' && !state.error) return;
     let text;
     if (state.error) text = `projector error · ${state.error}`;
+    else if (state.status === 'offline' && state.hint === 'permission') text = 'projector: allow local network access in Chrome (address bar), and run  npm run projector';
     else if (state.status === 'offline') text = 'projector offline · run  npm run projector';
     else if (state.status === 'loading') text = 'projector loading the model…';
     else if (state.status === 'error') text = 'projector failed to load · see server log';
