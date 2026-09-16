@@ -35,9 +35,10 @@ export function createSculpturePipeline({ solver, material, ribbon, renderer, to
   let refitPending = false;
 
   // ------------------------------------------------------------ UI helpers
+  const quiet = { value: false };
   function setProgress(label, pct) {
     const el = elements.progress;
-    if (!el) return;
+    if (!el || quiet.value) return;
     elements.progressLabel.textContent = label;
     elements.progressBar.style.width = `${pct}%`;
     el.classList.add('visible');
@@ -264,6 +265,8 @@ export function createSculpturePipeline({ solver, material, ribbon, renderer, to
 
   return {
     params, state,
+    /** Hold back status messages while something else owns the progress line. */
+    setQuiet(value) { quiet.value = value; },
     get backend() { return worker.backend; },
     loadFile, loadSample, loadSource, rebuild, clear, update, buildControls,
     preload: () => worker.load().catch(err => console.warn('[depth] preload failed', err)),

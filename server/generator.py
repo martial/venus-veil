@@ -39,6 +39,7 @@ class SketchGenerator:
         self.size = None
         self.prompt = None
         self.seed = None
+        self.loaded = {}          # size -> models, most recent last
         self.drift_label = 'base prompt'
         scheduler = json.loads((self.directory / 'scheduler' / 'scheduler_config.json').read_text())
         betas = np.linspace(scheduler['beta_start'] ** .5, scheduler['beta_end'] ** .5,
@@ -53,13 +54,23 @@ class SketchGenerator:
     def load_size(self, size):
         if size == self.size:
             return
+        if size in self.loaded:
+            self.models = self.loaded.pop(size)
+            self.loaded[size] = self.models       # move to the end
+            self.size = size
+            self.seed = None
+            return
         paths = {part: self.directory / f'{part}-{size}.mlpackage' for part in ('unet', 'decoder')}
         missing = [str(p.name) for p in paths.values() if not p.exists()]
         if missing:
             raise ValueError(f'Missing compiled models for {size}px: {", ".join(missing)}')
-        self.models = {}
-        gc.collect()
         self.models = {part: ct.models.MLModel(str(path), compute_units=self.compute_units) for part, path in paths.items()}
+        self.loaded[size] = self.models
+        # two resolutions stay resident, so two clients at different sizes do not
+        # make each other reload the model on every frame
+        while len(self.loaded) > 2:
+            self.loaded.pop(next(iter(self.loaded)))
+            gc.collect()
         self.size = size
         self.seed = None
 

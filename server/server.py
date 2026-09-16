@@ -68,6 +68,7 @@ def parse_frame(body, allowed_sizes=(128, 192, 256, 384, 512)):
         'drift': max(0., min(1., float(meta.get('drift', 0)))),
         'drift_phase': max(0., min(1e6, float(meta.get('drift_phase', 0)))),
         'format': 'rgba' if meta.get('format') == 'rgba' else 'png',
+        'priority': bool(meta.get('priority')),
     }
     return frame, pixels
 
@@ -123,12 +124,19 @@ def create_app(load=True):
             frame, pixels = parse_frame(await request.body(), tuple(state['sizes']))
         except FrameError as error:
             return Response(str(error), status_code=400)
-        if not lock.acquire(blocking=False):
+        # A recording waits its turn; live frames are dropped rather than queued.
+        # The wait happens on a worker thread: blocking here would stall every
+        # other request, health included.
+        acquired = await run_in_threadpool(
+            lambda: lock.acquire(blocking=frame['priority'], timeout=30 if frame['priority'] else -1))
+        if not acquired:
             return Response('one frame is already being generated', status_code=429)
         try:
             def work():
                 import numpy as np
                 from generator import encode_png
+                if frame['size'] != generator.size:
+                    generator.load_size(frame['size'])
                 depth = np.frombuffer(pixels, dtype=np.uint8).reshape(frame['size'], frame['size'])
                 rgb, stages = generator.generate(depth, frame['prompt'], frame['seed'], frame['guidance'],
                                                  frame['drift'], frame['drift_phase'])

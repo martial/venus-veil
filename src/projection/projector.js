@@ -39,6 +39,7 @@ export const PROJECTOR_DEFAULTS = {
   maxFps: 30,
   follow: true,
   mirror: true,
+  priority: false,     // a recording waits its turn on the service instead of skipping a frame
   liveInterval: 1,     // re-rasterise live occlusion every n frames (raised by the frame budget)
   physicsRelief: 0.25, // while projecting, how much of the sculpture still shapes the cloth
 };
@@ -54,7 +55,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
   const state = {
     status: 'offline', error: null, model: null, device: null,
     endpoint: 'http://127.0.0.1:5193',   // direct (the dev proxy /projector adds a hop)
-    busy: false, requested: 0, presented: 0, fps: 0, latencyMs: 0, inferenceMs: 0,
+    busy: false, requested: 0, presented: 0, fps: 0, latencyMs: 0, inferenceMs: 0, sizes: [256],
     driftPhase: 0, driftLabel: 'base prompt', slot: 1,
   };
 
@@ -99,21 +100,41 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
     return t;
   };
-  const slots = [0, 1].map(() => ({ image: makeImageTexture(params.size), depth: makeDepthTexture(params.depthSize), has: false }));
-  const liveRaster = createDepthRaster(params.depthSize);
-  const liveDepth = new THREE.DataTexture(liveRaster.metric, params.depthSize, params.depthSize, THREE.RedFormat, THREE.FloatType);
-  liveDepth.minFilter = liveDepth.magFilter = THREE.NearestFilter;
-  liveDepth.generateMipmaps = false;
+  const slots = [0, 1].map(() => ({ image: null, depth: null, has: false }));
   const figure = new Float32Array(solver.count);   // relief × mask, per particle
-  const pending = {
-    raster: createDepthRaster(params.depthSize),
-    model: new Uint8Array(params.size * params.size),
-    turned: new Uint8Array(params.size * params.size),
-    rgba: new Uint8Array(params.size * params.size * 4),
-    pos: new Float32Array(solver.pos.length),
-    matrix: new THREE.Matrix4(),
-  };
-  u.uProjTexel.value = 1 / params.depthSize;
+  const pending = { raster: null, model: null, turned: null, rgba: null, pos: new Float32Array(solver.pos.length), matrix: new THREE.Matrix4() };
+  let liveRaster = null, liveDepth = null;
+
+  /**
+   * Allocate every buffer for a model resolution. Small models capture occlusion
+   * at twice their size (an integer factor, so the model input is a clean
+   * average); at 384 and up the capture is already fine enough on its own.
+   */
+  function setSize(size) {
+    const n = Math.max(64, Math.round(size));
+    params.size = n;
+    params.depthSize = n <= 256 ? n * 2 : n;
+    for (const slot of slots) {
+      slot.image?.dispose();
+      slot.depth?.dispose();
+      slot.image = makeImageTexture(n);
+      slot.depth = makeDepthTexture(params.depthSize);
+      slot.has = false;
+    }
+    liveDepth?.dispose();
+    liveRaster = createDepthRaster(params.depthSize);
+    liveDepth = new THREE.DataTexture(liveRaster.metric, params.depthSize, params.depthSize, THREE.RedFormat, THREE.FloatType);
+    liveDepth.minFilter = liveDepth.magFilter = THREE.NearestFilter;
+    liveDepth.generateMipmaps = false;
+    pending.raster = createDepthRaster(params.depthSize);
+    pending.model = new Uint8Array(n * n);
+    pending.turned = new Uint8Array(n * n);
+    pending.rgba = new Uint8Array(n * n * 4);
+    u.uProjTexel.value = 1 / params.depthSize;
+    u.uProjMix.value = state.slot;
+    resizePreviews(n);
+    bindSlots();
+  }
 
   // calibration grid
   const gridCanvas = document.createElement('canvas');
@@ -154,7 +175,14 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
   // ------------------------------------------------------------ previews
   const depthCtx = elements.depthCanvas?.getContext('2d');
   const outputCtx = elements.outputCanvas?.getContext('2d');
-  const depthImage = depthCtx ? depthCtx.createImageData(params.size, params.size) : null;
+  let depthImage = null, outputImage = null;
+  const outputScratch = document.createElement('canvas');
+  function resizePreviews(n) {
+    depthImage = depthCtx ? depthCtx.createImageData(n, n) : null;
+    outputImage = new ImageData(n, n);
+    outputScratch.width = outputScratch.height = n;
+    if (depthCtx) { depthCtx.canvas.width = depthCtx.canvas.height = n; }
+  }
   const strip = [];
   function drawDepthPreview(src) {
     if (!depthCtx) return;
@@ -162,9 +190,6 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     for (let i = 0, j = 0; i < src.length; i++, j += 4) { dst[j] = dst[j + 1] = dst[j + 2] = src[i]; dst[j + 3] = 255; }
     depthCtx.putImageData(depthImage, 0, 0);
   }
-  const outputImage = new ImageData(params.size, params.size);
-  const outputScratch = document.createElement('canvas');
-  outputScratch.width = outputScratch.height = params.size;
   function drawOutput(rgbaBottomUp) {
     const n = params.size, row = n * 4, dst = outputImage.data;
     for (let y = 0; y < n; y++) dst.set(rgbaBottomUp.subarray((n - 1 - y) * row, (n - y) * row), y * row);
@@ -196,6 +221,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       state.error = h.error;
       state.model = h.model;
       state.device = h.device;
+      if (Array.isArray(h.sizes) && h.sizes.length) state.sizes = h.sizes;
     } catch (error) {
       state.status = 'offline';
       state.error = null;
@@ -240,7 +266,8 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       const frameId = ++state.requested;
       const body = packFrame({
         frame_id: frameId, size: params.size, prompt: params.prompt, seed: params.seed,
-        guidance: params.guidance, drift: params.wander ? params.drift : 0, drift_phase: state.driftPhase, format: 'rgba',
+        guidance: params.guidance, drift: params.wander ? params.drift : 0, drift_phase: state.driftPhase,
+        format: 'rgba', priority: params.priority,
       }, params.upright ? rotateQuarter(pending.model, params.size, pending.turned) : pending.model);
       const tSend = performance.now();
       const response = await fetch(`${state.endpoint}/generate`, {
@@ -418,6 +445,16 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     folder.add(params, 'guidance', 0.3, 2, 0.01).name('edge strength');
     folder.add(params, 'emphasis', 0, 1, 0.01).name('sculpture emphasis');
     folder.add(params, 'upright').name('figure upright for model');
+    folder.add(params, 'size', [256, 384, 512]).name('generated resolution').onChange(value => {
+      const n = Number(value);
+      if (!state.sizes.includes(n)) {
+        toast(`the service has no ${n} px model · npm run projector:setup -- --sizes ${n}`);
+        params.size = state.sizes[state.sizes.length - 1];
+        folder.controllers.forEach(c => c.updateDisplay());
+      }
+      setSize(params.size);
+      clearSlots();
+    });
     folder.add(params, 'physicsRelief', 0, 1, 0.01).name('sculpture in physics').onChange(applyPhysicsRelief);
     folder.add(params, 'seed', 0, 9999, 1).name('seed');
     folder.add(params, 'power', 0, 4, 0.01).name('brightness').onChange(bindSlots);
@@ -431,10 +468,10 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     folder.add({ clear: clearSlots }, 'clear').name('clear projected frames');
   }
 
-  bindSlots();
+  setSize(params.size);
 
   return {
-    params, state, camera, buildControls, setEnabled, update, health, clearSlots,
+    params, state, camera, buildControls, setEnabled, update, health, clearSlots, setSize,
     /** Re-apply params that were changed in bulk (a look preset). */
     refresh() { bindSlots(); applySurface(); applyPhysicsRelief(); report(); },
     /** Request and present one frame now (debug / headless checks). */
@@ -443,8 +480,8 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     dispose() {
       solver.params.reliefScale = 1;
       clearSlots();
-      for (const slot of slots) { slot.image.dispose(); slot.depth.dispose(); }
-      liveDepth.dispose(); gridTexture.dispose(); mirror.dispose();
+      for (const slot of slots) { slot.image?.dispose(); slot.depth?.dispose(); }
+      liveDepth?.dispose(); gridTexture.dispose(); mirror.dispose();
       scene.remove(mirror.group);
     },
   };

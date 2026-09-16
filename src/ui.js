@@ -1,12 +1,13 @@
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 import { PRESETS, applyPreset } from './presets.js';
+import { RESOLUTIONS } from './record.js';
 
 /**
  * Control panel. A handful of essentials and five looks by default; everything
  * else lives behind "expert controls". Controls write straight into the live
  * parameter objects, with `apply` callbacks where a value needs re-uploading.
  */
-export function createUI({ wind, solver, material, studio, post, actions, sculpture, projector, quality, applyQuality }) {
+export function createUI({ wind, solver, material, studio, post, actions, sculpture, projector, quality, applyQuality, exportSettings, recording }) {
   const gui = new GUI({ title: 'venus veil', width: 290 });
   gui.domElement.classList.add('veil-gui');
   const context = { wind, solver, material, studio, post, sculpture, projector };
@@ -116,6 +117,17 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
   const setExpert = on => { for (const f of advanced) on ? f.show() : f.hide(); };
   gui.add(state, 'expert').name('expert controls').onChange(setExpert);
   setExpert(false);
+
+  // ---------------------------------------------------------------- export
+  if (exportSettings) {
+    const fExport = gui.addFolder('Export');
+    fExport.add(exportSettings, 'resolution', Object.keys(RESOLUTIONS)).name('resolution');
+    fExport.add(exportSettings, 'fps', [12, 24, 25, 30]).name('frames per second');
+    fExport.add(exportSettings, 'seconds', 1, 60, 1).name('duration (s)');
+    if (projector) fExport.add(exportSettings, 'generated', [256, 384, 512]).name('generated resolution');
+    fExport.add({ record: () => actions.record() }, 'record').name('record a video');
+    fExport.close();
+  }
 
   // ---------------------------------------------------------------- actions
   const fActions = gui.addFolder('Actions');

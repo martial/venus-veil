@@ -32,6 +32,27 @@ downloads the model (~50 MB) once; the browser caches it.
 - `src/pipeline/veilTexture.js` — photo → mask (luminance or depth, hole-filled), stone tint,
   density (alpha) map, detail normal map, and the relief grid for the solver.
 
+## Recording
+
+**Export › record a video** renders the clip frame by frame and waits for each generated
+frame, so the file is smooth however slowly it was made. Pick the resolution (up to
+2560 × 1440), the frame rate, the duration and the generated resolution, then press record;
+`Escape` stops early and keeps what was recorded. The result is a WebM (VP9) that the browser
+saves like any download, and the recording holds priority on the projector service, so another
+open tab cannot steal its frames.
+
+Generated resolutions, measured on an M3 Pro (one frame, including the round trip):
+
+| Generated | Per frame | Live rate |
+|---|---|---|
+| 256 px | ~40 ms | ~25 fps |
+| 384 px | ~75 ms | ~13 fps |
+| 512 px | ~110 ms | ~9 fps |
+
+384 and 512 are meant for recording rather than live use. `npm run projector:setup` clones or
+compiles all three; add more with
+`.venv-projector/bin/python server/prepare_models.py --sizes 384 512`.
+
 ## Frame rate
 
 The studio measures its own frame time and holds the rate above **Performance › minimum fps**
