@@ -461,7 +461,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     folder.add(params, 'power', 0, 4, 0.01).name('brightness').onChange(bindSlots);
     folder.add(params, 'catch', 0, 1, 0.01).name('fabric catch').onChange(bindSlots);
     folder.add(params, 'blendMs', 0, 400, 1).name('frame blend (ms)');
-    folder.add(params, 'maxFps', 2, 30, 1).name('max generated fps');
+    folder.add(params, 'maxFps', 2, 60, 1).name('max generated fps');
     folder.add(params, 'follow').name('follow viewer');
     folder.add({ place: () => { placeQueued = true; params.follow = false; folder.controllers.forEach(c => c.updateDisplay()); toast('projector placed at this view'); } }, 'place').name('project from this view');
     folder.add(params, 'mirror').name('round output screen').onChange(v => { mirror.group.visible = params.enabled && v; });

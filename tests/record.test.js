@@ -61,6 +61,8 @@ test('the clip keeps its own frame rate while the diffusion updates more slowly'
   assert.equal(diffusionInterval(60, 100), 1, 'never faster than the clip itself');
   assert.equal(diffusionInterval(60, 0), 1, 'a missing rate means every frame');
   assert.ok(diffusionInterval(60, 0.25) > 60, 'a very slow diffusion holds one image for seconds');
+  assert.equal(diffusionInterval(60, 60), 1, 'a new image on every frame of a 60 fps clip');
+  assert.equal(diffusionInterval(30, 60), 1);
 });
 
 test('the camera holds still, then eases into an orbit', () => {

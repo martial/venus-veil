@@ -130,7 +130,7 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
     fExport.add(exportSettings, 'hold', 0, 0.8, 0.05).name('still at start');
     if (projector) {
       fExport.add(exportSettings, 'generated', [256, 384, 512]).name('generated resolution');
-      fExport.add(exportSettings, 'diffusionFps', 1, 30, 1).name('new image per second');
+      fExport.add(exportSettings, 'diffusionFps', 1, 60, 1).name('new image per second');
     }
     fExport.add({ record: () => actions.record() }, 'record').name('record a video');
     fExport.close();
