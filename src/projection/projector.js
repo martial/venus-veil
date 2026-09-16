@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createDepthRaster, rasterDepth, packFrame } from './rasterDepth.js';
+import { createDepthRaster, rasterDepth, downsampleGray, packFrame } from './rasterDepth.js';
 
 /**
  * Live projection: the veil's depth, seen from a projector at the viewer, goes
@@ -28,13 +28,16 @@ export const PROJECTOR_DEFAULTS = {
   wander: true,
   drift: 0.35,
   wanderSpeed: 0.12,       // materials per second
-  size: 256,
+  size: 256,          // model resolution
+  depthSize: 512,     // occlusion capture resolution (downsampled for the model)
+  surface: 'diffusion',   // 'diffusion' = the final image is the generated result alone
   power: 0.8,
   catch: 0.35,
   blendMs: 90,
   maxFps: 30,
   follow: true,
   mirror: true,
+  liveInterval: 1,     // re-rasterise live occlusion every n frames (raised by the frame budget)
 };
 
 const MODE_LABELS = { woven: 'woven into fabric', projector: 'physical projector', locked: 'frame-locked pairs' };
@@ -93,12 +96,18 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
     return t;
   };
-  const slots = [0, 1].map(() => ({ image: makeImageTexture(params.size), depth: makeDepthTexture(params.size), has: false }));
-  const liveRaster = createDepthRaster(params.size);
-  const liveDepth = new THREE.DataTexture(liveRaster.metric, params.size, params.size, THREE.RedFormat, THREE.FloatType);
+  const slots = [0, 1].map(() => ({ image: makeImageTexture(params.size), depth: makeDepthTexture(params.depthSize), has: false }));
+  const liveRaster = createDepthRaster(params.depthSize);
+  const liveDepth = new THREE.DataTexture(liveRaster.metric, params.depthSize, params.depthSize, THREE.RedFormat, THREE.FloatType);
   liveDepth.minFilter = liveDepth.magFilter = THREE.NearestFilter;
   liveDepth.generateMipmaps = false;
-  const pending = { raster: createDepthRaster(params.size), pos: new Float32Array(solver.pos.length), matrix: new THREE.Matrix4() };
+  const pending = {
+    raster: createDepthRaster(params.depthSize),
+    model: new Uint8Array(params.size * params.size),
+    pos: new Float32Array(solver.pos.length),
+    matrix: new THREE.Matrix4(),
+  };
+  u.uProjTexel.value = 1 / params.depthSize;
 
   // calibration grid
   const gridCanvas = document.createElement('canvas');
@@ -141,9 +150,9 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
   const outputCtx = elements.outputCanvas?.getContext('2d');
   const depthImage = depthCtx ? depthCtx.createImageData(params.size, params.size) : null;
   const strip = [];
-  function drawDepthPreview(raster) {
+  function drawDepthPreview(src) {
     if (!depthCtx) return;
-    const src = raster.gray, dst = depthImage.data;
+    const dst = depthImage.data;
     for (let i = 0, j = 0; i < src.length; i++, j += 4) { dst[j] = dst[j + 1] = dst[j + 2] = src[i]; dst[j + 3] = 255; }
     depthCtx.putImageData(depthImage, 0, 0);
   }
@@ -168,7 +177,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
 
   // ------------------------------------------------------------ service
   let generation = 0, abort = null, lastRequest = 0, lastPresent = 0, nextHealth = 0, healthBusy = false, placeQueued = false;
-  let lastPhaseTime = performance.now(), gridTick = 0;
+  let lastPhaseTime = performance.now(), gridTick = 0, liveTick = 0;
 
   async function health() {
     if (healthBusy) return;
@@ -210,7 +219,8 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       pending.matrix.copy(currentMatrix());
       pending.pos.set(solver.pos);
       rasterDepth(pending.raster, pending.pos, indices, pending.matrix.elements, near, far);
-      if (state.requested % 2 === 0) drawDepthPreview(pending.raster);
+      downsampleGray(pending.raster.gray, params.depthSize, pending.model, params.size);
+      if (state.requested % 2 === 0) drawDepthPreview(pending.model);
       const now = performance.now();
       if (params.wander) state.driftPhase += Math.min(0.5, (now - lastPhaseTime) / 1000) * params.wanderSpeed;
       lastPhaseTime = now;
@@ -218,7 +228,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       const body = packFrame({
         frame_id: frameId, size: params.size, prompt: params.prompt, seed: params.seed,
         guidance: params.guidance, drift: params.wander ? params.drift : 0, drift_phase: state.driftPhase, format: 'rgba',
-      }, pending.raster.gray);
+      }, pending.model);
       const tSend = performance.now();
       const response = await fetch(`${state.endpoint}/generate`, {
         method: 'POST', body, headers: { 'Content-Type': 'application/octet-stream' },
@@ -251,7 +261,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       if (params.blendMs <= 0) u.uProjMix.value = s;
       bindSlots();
 
-      mirror.setCropFromGray(pending.raster.gray, params.size);
+      mirror.setCropFromGray(pending.model, params.size);
       state.presented++;
       if (state.presented % 2 === 1 || !params.running) drawOutput(rgba);
       if (state.presented % 12 === 1) pushStrip();
@@ -291,6 +301,15 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     bindSlots();
   }
 
+  function applySurface() {
+    const defines = { ...(material.defines || {}) };
+    const only = params.enabled && params.surface === 'diffusion';
+    if (only) defines.VEIL_PROJECTION_ONLY = '';
+    else delete defines.VEIL_PROJECTION_ONLY;
+    material.defines = defines;
+    material.needsUpdate = true;
+  }
+
   function setEnabled(on) {
     params.enabled = on;
     if (on) {
@@ -298,11 +317,11 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       aimAtViewer();
       health();
     } else {
-      const { VEIL_PROJECTION, ...rest } = material.defines || {};
+      const { VEIL_PROJECTION, VEIL_PROJECTION_ONLY, ...rest } = material.defines || {};
       material.defines = rest;
       clearSlots();
     }
-    material.needsUpdate = true;
+    applySurface();
     mirror.group.visible = on && params.mirror;
     if (elements.panel) elements.panel.hidden = !on;
     bindSlots();
@@ -319,7 +338,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       u.uProjMix.value += (state.slot - u.uProjMix.value) * k;
     }
     const live = params.show === 'grid' || params.mode === 'projector';
-    if (live) {
+    if (live && (params.liveInterval <= 1 || liveTick++ % params.liveInterval === 0)) {
       if (params.show === 'grid') {
         if (params.follow || placeQueued) { aimAtViewer(); placeQueued = false; }
         u.uProjMat0.value.copy(currentMatrix());
@@ -327,7 +346,10 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       const m = params.show === 'grid' ? u.uProjMat0.value : (state.slot === 0 ? u.uProjMat0.value : u.uProjMat1.value);
       rasterDepth(liveRaster, solver.pos, indices, m.elements, near, far);
       liveDepth.needsUpdate = true;
-      if (params.show === 'grid' && gridTick++ % 3 === 0) drawDepthPreview(liveRaster);
+      if (params.show === 'grid' && gridTick++ % 3 === 0) {
+        downsampleGray(liveRaster.gray, params.depthSize, pending.model, params.size);
+        drawDepthPreview(pending.model);
+      }
     }
     if (params.show === 'generated' && params.running && state.status === 'ready' && !state.busy
       && document.visibilityState !== 'hidden' && now - lastRequest >= 1000 / params.maxFps) {
@@ -362,6 +384,9 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       .name('mode').onChange(() => { bindSlots(); report(); });
     folder.add(params, 'show', { 'generated light': 'generated', 'calibration grid': 'grid' }).name('show')
       .onChange(() => { bindSlots(); report(); });
+    folder.add(params, 'surface', { 'diffusion only': 'diffusion', 'fabric + light': 'fabric' }).name('final image')
+      .onChange(applySurface);
+    folder.add(u.uProjSoft, 'value', 0, 4, 0.1).name('occlusion softness');
     folder.add(params, 'running').name('running');
     folder.add(params, 'prompt').name('prompt');
     folder.add(params, 'wander').name('material wandering');

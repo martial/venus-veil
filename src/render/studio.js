@@ -36,6 +36,9 @@ export const STUDIO_DEFAULTS = {
   mirrorStrength: 0.55,
   mirrorBlur: 2.5,
   poolIntensity: 1,
+  beamSteps: 32,          // raymarch samples through the light cone
+  mirrorInterval: 1,      // re-render the floor reflection every n frames
+  mirrorScale: 1,         // reflection resolution factor
 };
 
 function createSoftboxEnvironment(renderer) {
@@ -68,6 +71,7 @@ function createBeam(key) {
     depthTest: false,
     side: THREE.BackSide,
     forceSinglePass: true,
+    defines: { BEAM_STEPS: String(STUDIO_DEFAULTS.beamSteps) },
     uniforms: {
       uTime: { value: 0 },
       uIntensity: { value: STUDIO_DEFAULTS.beamIntensity },
@@ -100,7 +104,7 @@ function createBeam(key) {
         float nearT = max(0.0, max(tmin.x, max(tmin.y, tmin.z)));
         float farT = min(tmax.x, min(tmax.y, tmax.z));
         if (farT <= nearT) discard;
-        const int STEPS = 32;
+        const int STEPS = BEAM_STEPS;
         float stepSize = (farT - nearT) / float(STEPS);
         float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
         float light = 0.0, haze = 0.0;
@@ -149,9 +153,10 @@ function createBeam(key) {
 
 function createMirrorFloor(renderer) {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const reflectionSize = Math.round(768 * dpr * STUDIO_DEFAULTS.mirrorScale);
   const mirror = new Reflector(new THREE.PlaneGeometry(40, 40), {
-    textureWidth: Math.round(1024 * dpr),
-    textureHeight: Math.round(1024 * dpr),
+    textureWidth: reflectionSize,
+    textureHeight: reflectionSize,
     color: 0xffffff,
     clipBias: 0.003,
     multisample: 0,
@@ -213,7 +218,7 @@ function createMirrorFloor(renderer) {
   mirror.rotation.x = -Math.PI / 2;
   mirror.position.y = 0;
   mirror.renderOrder = -1;
-  mirror.material.uniforms.uTexel.value.set(1 / (1024 * dpr), 1 / (1024 * dpr));
+  mirror.material.uniforms.uTexel.value.set(1 / reflectionSize, 1 / reflectionSize);
 
   // additive lit layer: spotlight pool + veil shadow on top of the mirror
   const pool = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshPhysicalMaterial({
@@ -246,7 +251,7 @@ export function createStudio(scene, renderer, camera) {
   key.position.set(-2.2, 0.12, 4.0);
   key.target.position.set(0.4, 1.7, -0.3);
   key.castShadow = true;
-  key.shadow.mapSize.set(2048, 2048);
+  key.shadow.mapSize.set(1536, 1536);
   key.shadow.camera.near = 0.5;
   key.shadow.camera.far = 14;
   key.shadow.bias = -0.0004;
@@ -288,7 +293,10 @@ export function createStudio(scene, renderer, camera) {
   scene.add(mirror, pool);
   // the beam and glow must not appear in the reflection
   const originalOnBeforeRender = mirror.onBeforeRender;
+  let mirrorTick = 0;
   mirror.onBeforeRender = function (...args) {
+    // the reflection is blurred, so refreshing it every n frames is invisible
+    if (params.mirrorInterval > 1 && mirrorTick++ % params.mirrorInterval !== 0) return;
     beam.mesh.visible = false; glow.visible = false;
     originalOnBeforeRender.apply(this, args);
     beam.mesh.visible = true; glow.visible = true;
@@ -304,6 +312,10 @@ export function createStudio(scene, renderer, camera) {
     beam.material.uniforms.uHaze.value = params.hazeIntensity;
     scene.environmentIntensity = params.environmentIntensity;
     scene.fog.density = params.fogDensity;
+    if (beam.material.defines.BEAM_STEPS !== String(params.beamSteps)) {
+      beam.material.defines.BEAM_STEPS = String(params.beamSteps);
+      beam.material.needsUpdate = true;
+    }
     mirror.material.uniforms.uStrength.value = params.mirrorStrength;
     mirror.material.uniforms.uBlur.value = params.mirrorBlur;
     pool.material.color.setScalar(0.1 * params.poolIntensity);

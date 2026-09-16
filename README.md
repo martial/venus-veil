@@ -32,6 +32,13 @@ downloads the model (~50 MB) once; the browser caches it.
 - `src/pipeline/veilTexture.js` — photo → mask (luminance or depth, hole-filled), stone tint,
   density (alpha) map, detail normal map, and the relief grid for the solver.
 
+## Frame rate
+
+The studio measures its own frame time and holds the rate above **Performance › minimum fps**
+(24 by default). It lowers resolution first, then steps down the volumetric beam, the floor
+reflection, the shadow refresh and multisampling. The readout next to the fps counter shows the
+current resolution when it is below 100%. Turn **hold frame rate** off to pin the settings by hand.
+
 ## Controls
 
 Drag to orbit, scroll to zoom, move the pointer through the veil to push it.
@@ -65,6 +72,11 @@ The published page can use the same local service (Chrome may ask to allow local
   keeps the image fixed in projector space and re-rasterises occlusion every frame.
   *Frame-locked pairs* advances the cloth 1/30 s per generated frame, so every pose is
   exactly the pose its image was made from.
+- **Final image:** *diffusion only* (default) shows the generated result alone, floating in the
+  studio; *fabric + light* keeps the lit veil and adds the projection on top.
+- **Occlusion** is captured at 512 px and filtered over 3×3 taps, so fold shadows have soft
+  edges instead of stepping along the projector's pixel grid; the model is fed a
+  box-averaged 256 px copy of the same capture.
 - **Every image is committed atomically** with its capture pose, projector matrix and depth
   buffer into one of two slots, which crossfade (**frame blend**).
 - **Material wandering** blends the prompt through limestone, ivory, mother of pearl and

@@ -8,6 +8,7 @@ import { createRibbonMesh } from './render/ribbonMesh.js';
 import { createVeilMaterial, createWeaveTextures } from './render/veilMaterial.js';
 import { createStudio } from './render/studio.js';
 import { createPost } from './render/post.js';
+import { createQuality } from './render/quality.js';
 import { createUI } from './ui.js';
 import { createSculpturePipeline } from './pipeline/sculpture.js';
 import { createProjector } from './projection/projector.js';
@@ -25,12 +26,15 @@ function toast(message, ms = 3200) {
 async function start() {
   const viewport = $('viewport');
   const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', alpha: false });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  const baseDpr = Math.min(window.devicePixelRatio || 1, 2);
+  const quality = createQuality({ maxScale: 1, floor: 24, target: 50 });
+  renderer.setPixelRatio(baseDpr);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.1;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
+  renderer.shadowMap.autoUpdate = false;   // refreshed on a schedule (see applyQuality)
   renderer.setClearColor(0x030304, 1);
   viewport.appendChild(renderer.domElement);
 
@@ -54,7 +58,8 @@ async function start() {
   const wind = createWind();
   const { min, max } = solver.bounds();
   wind.setBounds(min, max, 1.2);
-  const stepper = createStepper({ dt: 1 / 120, maxSubsteps: 8, maxFrameDt: 1 / 10 });
+  // 4 substeps max: a slow frame must not make the next one slower still
+  const stepper = createStepper({ dt: 1 / 120, maxSubsteps: 4, maxFrameDt: 1 / 10 });
 
   // rendering
   const weave = createWeaveTextures(512);
@@ -88,12 +93,23 @@ async function start() {
     },
   });
 
-  // resize
+  // resize + frame-rate budget
   const resize = () => {
     const w = viewport.clientWidth, h = viewport.clientHeight;
     camera.aspect = w / h; camera.updateProjectionMatrix();
     renderer.setSize(w, h);
     post.setSize(w, h);
+  };
+  const applyQuality = () => {
+    const s = quality.settings;
+    renderer.setPixelRatio(baseDpr * s.scale);
+    studio.params.beamSteps = s.beamSteps;
+    studio.params.mirrorInterval = s.mirrorInterval;
+    studio.apply();
+    post.params.samples = s.samples;
+    post.apply();
+    projector.params.liveInterval = s.liveInterval;
+    resize();
   };
   new ResizeObserver(resize).observe(viewport);
   resize();
@@ -139,7 +155,7 @@ async function start() {
     },
     toggleUI() { document.body.classList.toggle('ui-hidden'); },
   };
-  const ui = createUI({ wind, solver, material, studio, post, actions, sculpture, projector });
+  const ui = createUI({ wind, solver, material, studio, post, actions, sculpture, projector, quality, applyQuality });
   window.addEventListener('keydown', e => {
     if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.code === 'Space') { e.preventDefault(); actions.pause(); }
@@ -151,7 +167,7 @@ async function start() {
   // loop
   const timer = new THREE.Timer();
   timer.connect(document);
-  let frames = 0, fpsTime = performance.now(), fps = 0;
+  let frames = 0, fpsTime = performance.now(), fps = 0, shadowTick = 0;
   const animate = () => {
     timer.update();
     const frameDt = timer.getDelta();
@@ -171,12 +187,18 @@ async function start() {
     controls.update();
     projector.update(Math.min(frameDt, 0.1));
     studio.update(t);
+    // shadows on a schedule; the key light and the veil move slowly relative to the frame rate
+    renderer.shadowMap.needsUpdate = shadowTick++ % quality.settings.shadowInterval === 0;
     post.render(t);
     frames++;
+    if (quality.sample(frameDt * 1000)) applyQuality();
     const now = performance.now();
     if (now - fpsTime >= 1000) {
       fps = Math.round(frames * 1000 / (now - fpsTime));
-      $('fps').textContent = `${fps} fps`;
+      const scale = quality.params.scale;
+      $('fps').textContent = scale < 0.995 || quality.params.level > 0
+        ? `${fps} fps · ${Math.round(scale * 100)}%`
+        : `${fps} fps`;
       frames = 0; fpsTime = now;
     }
   };
@@ -193,7 +215,7 @@ async function start() {
   }
 
   window.__veil = {
-    solver, wind, material, studio, post, camera, controls, sculpture, renderer, ribbon, stepper, projector,
+    solver, wind, material, studio, post, camera, controls, sculpture, renderer, ribbon, stepper, projector, quality, applyQuality,
     /** Advance the simulation by `seconds` of wind and render one frame (for headless checks). */
     simulate(seconds = 3, t0 = 0) {
       const dt = stepper.dt, steps = Math.round(seconds / dt);
@@ -208,6 +230,7 @@ async function start() {
     stats: () => ({
       fps, paused, time: solver.time, particles: solver.count, constraints: solver.constraintCount,
       strain: solver.maxStretchStrain(), depthBackend: sculpture.backend, hasRelief: !!solver.relief,
+      quality: { scale: +quality.params.scale.toFixed(2), level: quality.params.level, frameMs: quality.params.frameMs },
       projector: { enabled: projector.params.enabled, mode: projector.params.mode, status: projector.state.status,
         presented: projector.state.presented, generatedFps: +projector.state.fps.toFixed(1), latencyMs: Math.round(projector.state.latencyMs) },
     }),

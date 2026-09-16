@@ -4,7 +4,7 @@ import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
  * lil-gui control panel. Every control writes straight into the live params
  * objects; `apply` callbacks push values that need a re-upload.
  */
-export function createUI({ wind, solver, material, studio, post, actions, sculpture, projector }) {
+export function createUI({ wind, solver, material, studio, post, actions, sculpture, projector, quality, applyQuality }) {
   const gui = new GUI({ title: 'venus veil', width: 290 });
   gui.domElement.classList.add('veil-gui');
 
@@ -76,6 +76,16 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
   if (projector) {
     fProject = gui.addFolder('Projection');
     projector.buildControls(fProject);
+  }
+
+  if (quality) {
+    const fPerf = gui.addFolder('Performance');
+    fPerf.add(quality.params, 'auto').name('hold frame rate');
+    fPerf.add(quality.params, 'floor', 12, 60, 1).name('minimum fps');
+    fPerf.add(quality.params, 'scale', 0.4, 1, 0.05).name('resolution').listen().onChange(applyQuality);
+    fPerf.add(quality.params, 'level', 0, 2, 1).name('detail step').listen().onChange(applyQuality);
+    fPerf.add(quality.params, 'frameMs').name('frame (ms)').listen().disable();
+    fPerf.close();
   }
 
   const fActions = gui.addFolder('Actions');

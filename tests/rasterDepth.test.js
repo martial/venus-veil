@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { createDepthRaster, rasterDepth, packFrame, EMPTY_DEPTH } from '../src/projection/rasterDepth.js';
+import { createDepthRaster, rasterDepth, downsampleGray, packFrame, EMPTY_DEPTH } from '../src/projection/rasterDepth.js';
 
 function viewProjection(position = [0, 0, 0], target = [0, 0, -1]) {
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 50);
@@ -84,4 +84,23 @@ test('packFrame lays out length, utf-8 JSON and depth bytes', () => {
   const meta = JSON.parse(new TextDecoder().decode(body.subarray(4, 4 + length)));
   assert.equal(meta.prompt, 'Vénus');
   assert.deepEqual(Array.from(body.subarray(4 + length)), [1, 2, 3, 4]);
+});
+
+test('downsampleGray averages covered samples and drops thin coverage', () => {
+  const src = new Uint8Array(16);   // 4x4
+  const dst = new Uint8Array(4);    // 2x2
+  // top-left block fully covered with 100, top-right block one sample only
+  src[0] = src[1] = src[4] = src[5] = 100;
+  src[2] = 200;
+  downsampleGray(src, 4, dst, 2);
+  assert.equal(dst[0], 100);
+  assert.equal(dst[1], 0, 'a quarter-covered block stays empty');
+  assert.equal(dst[2], 0);
+  // half coverage keeps the average of the covered samples
+  const half = new Uint8Array(16);
+  half[0] = 40; half[1] = 80;
+  const out = new Uint8Array(4);
+  downsampleGray(half, 4, out, 2);
+  assert.equal(out[0], 60);
+  assert.throws(() => downsampleGray(src, 4, dst, 3));
 });

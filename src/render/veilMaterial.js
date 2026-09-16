@@ -106,7 +106,9 @@ export function createVeilMaterial(weave, overrides = {}) {
     uProjLive: { value: 0 },
     uProjPower: { value: 1.3 },
     uProjCatch: { value: 0.55 },
-    uProjBias: { value: 0.03 },
+    uProjBias: { value: 0.035 },
+    uProjTexel: { value: 1 / 512 },
+    uProjSoft: { value: 1.5 },
   };
 
   const material = new THREE.MeshPhysicalMaterial({
@@ -196,13 +198,25 @@ export function createVeilMaterial(weave, overrides = {}) {
           uniform float uProjPower;
           uniform float uProjCatch;
           uniform float uProjBias;
+          uniform float uProjTexel;
+          uniform float uProjSoft;
           vec3 veilProjectSample( vec4 clipPos, sampler2D map, sampler2D slotDepth ) {
             if ( clipPos.w <= 0.0 ) return vec3( 0.0 );
             vec2 uv = clipPos.xy / clipPos.w * 0.5 + 0.5;
             if ( uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0 ) return vec3( 0.0 );
-            // occlusion: only the fold nearest to the projector receives light
-            float stored = mix( texture2D( slotDepth, uv ).r, texture2D( uProjDepthLive, uv ).r, uProjLive );
-            float visible = 1.0 - smoothstep( uProjBias, uProjBias * 3.0, clipPos.w - stored );
+            // occlusion: only the fold nearest to the projector receives light.
+            // 3x3 percentage-closer filter, so fold shadows do not step along
+            // the projector's pixel grid.
+            float step = uProjTexel * uProjSoft;
+            float visible = 0.0;
+            for ( int j = -1; j <= 1; j ++ ) {
+              for ( int i = -1; i <= 1; i ++ ) {
+                vec2 offset = uv + vec2( float( i ), float( j ) ) * step;
+                float stored = mix( texture2D( slotDepth, offset ).r, texture2D( uProjDepthLive, offset ).r, uProjLive );
+                visible += 1.0 - smoothstep( uProjBias, uProjBias * 4.0, clipPos.w - stored );
+              }
+            }
+            visible /= 9.0;
             return texture2D( map, uv ).rgb * visible;
           }
         #endif`)
@@ -224,11 +238,18 @@ export function createVeilMaterial(weave, overrides = {}) {
         #include <premultiplied_alpha_fragment>
         gl_FragColor.rgb += veilGlow * 0.5;
         #ifdef VEIL_PROJECTION
-          // projected light scatters in the fabric: sheer areas catch less, folds catch it all
-          gl_FragColor.rgb += veilProjected * mix( uProjCatch, 1.0, diffuseColor.a );
+          #ifdef VEIL_PROJECTION_ONLY
+            // the final image is the diffusion result alone, floating in the studio.
+            // halved: the sheet is double sided, so front and back both emit here
+            gl_FragColor = vec4( veilProjected * 0.6, 0.0 );
+          #else
+            // projected light scatters in the fabric: sheer areas catch less, folds catch it all
+            gl_FragColor.rgb += veilProjected * mix( uProjCatch, 1.0, diffuseColor.a );
+          #endif
         #endif`);
   };
-  material.customProgramCacheKey = () => `venus-veil-v2${material.defines?.VEIL_PROJECTION ? '-projection' : ''}`;
+  material.customProgramCacheKey = () =>
+    `venus-veil-v3${material.defines?.VEIL_PROJECTION ? '-projection' : ''}${material.defines?.VEIL_PROJECTION_ONLY ? '-only' : ''}`;
   material.userData.uniforms = uniforms;
   material.userData.defaults = d;
   material.userData.weave = weave || null;

@@ -128,6 +128,31 @@ export function rasterDepth(raster, positions, indices, m, near, far) {
   return raster;
 }
 
+/**
+ * Box-average a gray buffer down by an integer factor (top-down rows kept).
+ * Averaging only the covered samples keeps silhouette edges smooth without
+ * bleeding the empty background into the surface.
+ */
+export function downsampleGray(src, srcSize, dst, dstSize) {
+  const factor = srcSize / dstSize;
+  if (!Number.isInteger(factor)) throw new Error('downsampleGray needs an integer factor');
+  for (let y = 0; y < dstSize; y++) {
+    for (let x = 0; x < dstSize; x++) {
+      let sum = 0, n = 0;
+      for (let sy = 0; sy < factor; sy++) {
+        const row = (y * factor + sy) * srcSize + x * factor;
+        for (let sx = 0; sx < factor; sx++) {
+          const v = src[row + sx];
+          if (v !== 0) { sum += v; n++; }
+        }
+      }
+      // keep a pixel empty unless the block is at least half covered
+      dst[y * dstSize + x] = n * 2 >= factor * factor ? Math.round(sum / n) : 0;
+    }
+  }
+  return dst;
+}
+
 /** Binary request body: uint32 LE JSON length | JSON utf-8 | depth bytes. */
 export function packFrame(meta, gray) {
   const header = new TextEncoder().encode(JSON.stringify(meta));

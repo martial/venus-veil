@@ -13,6 +13,7 @@ export const POST_DEFAULTS = {
   vignette: 0.35,
   vignetteSoft: 0.6,
   exposure: 1.0,
+  samples: 4,
 };
 
 export const GrainVignetteShader = {
@@ -45,7 +46,7 @@ export const GrainVignetteShader = {
 export function createPost(renderer, scene, camera) {
   const params = { ...POST_DEFAULTS };
   const size = renderer.getSize(new THREE.Vector2());
-  const target = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: 4 });
+  const target = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: params.samples });
   const composer = new EffectComposer(renderer, target);
   composer.addPass(new RenderPass(scene, camera));
   const bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), params.bloomStrength, params.bloomRadius, params.bloomThreshold);
@@ -62,6 +63,12 @@ export function createPost(renderer, scene, camera) {
     grain.uniforms.uVignette.value = params.vignette;
     grain.uniforms.uVignetteSoft.value = params.vignetteSoft;
     renderer.toneMappingExposure = params.exposure;
+    if (composer.renderTarget1.samples !== params.samples) {
+      for (const rt of [composer.renderTarget1, composer.renderTarget2]) {
+        rt.samples = params.samples;
+        rt.dispose();
+      }
+    }
   }
   apply();
 
