@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { pickMimeType, extensionFor, exportPlan, pickBitrate, formatProgress, cameraAngle, createFrameWriter, diffusionInterval, evenSize, whenVisible, MIME_CANDIDATES, QUALITIES, RESOLUTIONS } from '../src/record.js';
+import { pickMimeType, extensionFor, exportPlan, pickBitrate, formatProgress, cameraAngle, clockText, createFrameWriter, diffusionInterval, evenSize, whenVisible, MIME_CANDIDATES, QUALITIES, RESOLUTIONS } from '../src/record.js';
 
 test('MP4 is preferred, WebM is the fallback, and the extension follows', () => {
   const all = () => true;
@@ -40,9 +40,10 @@ test('progress reports a fraction and a countdown', () => {
   const half = formatProgress(50, 100, 0, 10_000);
   assert.equal(half.done, 0.5);
   assert.match(half.text, /50 \/ 100/);
-  assert.match(half.text, /0:10 left/);
+  assert.match(half.text, /10 s left/);
   assert.equal(formatProgress(0, 100, 0, 1000).done, 0);
   assert.match(formatProgress(30, 60, 0, 60_000).text, /1:00 left/, 'half done after a minute means a minute to go');
+  assert.match(formatProgress(10, 1000, 0, 60_000).text, /1 h 39 left/, 'long recordings read in hours');
 });
 
 test('the resolution list offers the viewport and three fixed sizes', () => {
@@ -146,4 +147,13 @@ test('a hidden page makes the recording wait', async () => {
   listeners.forEach(fn => fn());
   assert.equal(await waited, true, 'resumes when the page comes back');
   assert.equal(await whenVisible({ visibilityState: 'visible' }), false, 'a visible page never waits');
+});
+
+test('the clock says hours once minutes stop meaning anything', () => {
+  assert.equal(clockText(45), '45 s');
+  assert.equal(clockText(90), '1:30');
+  assert.equal(clockText(750), '12:30');
+  assert.equal(clockText(3600), '1 h 00');
+  assert.equal(clockText(40832), '11 h 21', 'the estimate that started this');
+  assert.equal(clockText(-5), '0 s');
 });

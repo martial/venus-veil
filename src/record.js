@@ -100,12 +100,19 @@ export function pickBitrate(width, height, fps, quality = 'high') {
   return Math.round(Math.min(120e6, base * factor));
 }
 
+/** 45 s · 12:30 · 2 h 05 — hours appear before the number stops meaning anything. */
+export function clockText(seconds) {
+  const total = Math.max(0, Math.round(seconds));
+  if (total < 60) return `${total} s`;
+  if (total < 3600) return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+  return `${Math.floor(total / 3600)} h ${String(Math.round((total % 3600) / 60)).padStart(2, '0')}`;
+}
+
 export function formatProgress(frame, frames, startedMs, nowMs) {
   const done = frame / frames;
   const elapsed = (nowMs - startedMs) / 1000;
   const remaining = done > 0 ? elapsed * (1 / done - 1) : 0;
-  const clock = s => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
-  return { done, text: `recording ${frame} / ${frames} · ${clock(remaining)} left` };
+  return { done, text: `recording ${frame} / ${frames} · ${clockText(remaining)} left` };
 }
 
 /**

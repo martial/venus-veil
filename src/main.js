@@ -11,7 +11,7 @@ import { createPost } from './render/post.js';
 import { createQuality } from './render/quality.js';
 import { createUI } from './ui.js';
 import { PRESET_NAMES } from './presets.js';
-import { cameraAngle, createFrameWriter, createVideoRecorder, diffusionInterval, evenSize, offerBlob, exportPlan, formatProgress, pickBitrate, whenVisible, QUALITIES, RESOLUTIONS } from './record.js';
+import { cameraAngle, clockText, createFrameWriter, createVideoRecorder, diffusionInterval, evenSize, offerBlob, exportPlan, formatProgress, pickBitrate, whenVisible, QUALITIES, RESOLUTIONS } from './record.js';
 import { createSculpturePipeline } from './pipeline/sculpture.js';
 import { createProjector } from './projection/projector.js';
 
@@ -154,7 +154,7 @@ async function start() {
     const images = Math.ceil(plan.frames / interval);
     const perImage = projector.state.perFrameMs?.[exportSettings.engine] || ENGINE_COST_MS[exportSettings.engine] || 150;
     const seconds = (images * perImage) / 1000 + plan.frames * 0.05;
-    return { plan, images, seconds, clock: `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, '0')}` };
+    return { plan, images, seconds, clock: clockText(seconds) };
   };
   const recording = { active: false, cancel: false };
   const progressEl = $('progress'), progressBar = $('progress-bar'), progressLabel = $('progress-label');
