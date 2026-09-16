@@ -35,11 +35,18 @@ downloads the model (~50 MB) once; the browser caches it.
 ## Recording
 
 **Export › record a video** renders the clip frame by frame and waits for each generated
-frame, so the file is smooth however slowly it was made. Pick the resolution (up to
-2560 × 1440), the frame rate, the duration and the generated resolution, then press record;
-`Escape` stops early and keeps what was recorded. The result is a WebM (VP9) that the browser
-saves like any download, and the recording holds priority on the projector service, so another
-open tab cannot steal its frames.
+frame, so the file is smooth however slowly it was made. The panel itself is never in the
+picture: only the render canvas is captured.
+
+- **Format:** MP4 (H.264) by default, straight into any editor; WebM (VP9) if you prefer it.
+- **Resolution:** the viewport, or a fixed 1280 × 720, 1920 × 1080 or 2560 × 1440.
+- **Quality:** standard, high or master. At 1920 × 1080 / 24 fps that is about 5, 10 and
+  20 Mbit/s.
+- **Camera orbit:** degrees the camera travels around the veil over the clip, for movement
+  that does not depend on your hand.
+- **Generated resolution:** 256, 384 or 512 px for the diffusion.
+- `Escape` stops early and keeps what was recorded. Recordings hold priority on the projector
+  service, so another open tab cannot steal their frames.
 
 Generated resolutions, measured on an M3 Pro (one frame, including the round trip):
 
@@ -52,6 +59,11 @@ Generated resolutions, measured on an M3 Pro (one frame, including the round tri
 384 and 512 are meant for recording rather than live use. `npm run projector:setup` clones or
 compiles all three; add more with
 `.venv-projector/bin/python server/prepare_models.py --sizes 384 512`.
+
+For a high-quality clip: hide the panel with `H`, place the camera, then set 2560 × 1440,
+24 fps, quality master, generated 512 and an orbit of 10 to 20 degrees. A 10 second clip takes
+about 3 minutes, most of it waiting for the model. Older WebM clips convert with
+`npm run to-mp4 -- <clip.webm>` (requires ffmpeg).
 
 ## Frame rate
 

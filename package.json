@@ -12,7 +12,8 @@
     "test:watch": "node --test --watch tests/*.test.js",
     "projector": "sh scripts/projector.sh",
     "projector:setup": "sh scripts/setup-projector.sh",
-    "test:server": ".venv-projector/bin/python -m unittest discover -s server -p \"test_*.py\""
+    "test:server": ".venv-projector/bin/python -m unittest discover -s server -p \"test_*.py\"",
+    "to-mp4": "sh scripts/to-mp4.sh"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",

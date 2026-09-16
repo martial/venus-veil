@@ -1,12 +1,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { pickMimeType, exportPlan, pickBitrate, formatProgress, MIME_CANDIDATES, RESOLUTIONS } from '../src/record.js';
+import { pickMimeType, extensionFor, exportPlan, pickBitrate, formatProgress, MIME_CANDIDATES, QUALITIES, RESOLUTIONS } from '../src/record.js';
 
-test('the container falls back through the candidates', () => {
-  assert.equal(pickMimeType(() => true), MIME_CANDIDATES[0]);
-  assert.equal(pickMimeType(t => t === 'video/webm'), 'video/webm');
-  assert.equal(pickMimeType(t => t.includes('vp8')), 'video/webm;codecs=vp8');
-  assert.equal(pickMimeType(() => false), null, 'a browser with no WebM support reports none');
+test('MP4 is preferred, WebM is the fallback, and the extension follows', () => {
+  const all = () => true;
+  assert.equal(pickMimeType(all), MIME_CANDIDATES.mp4[0]);
+  assert.equal(pickMimeType(all, 'webm'), MIME_CANDIDATES.webm[0]);
+  // a browser without MP4 recording still gets a file
+  const noMp4 = t => !t.startsWith('video/mp4');
+  assert.equal(pickMimeType(noMp4, 'mp4'), MIME_CANDIDATES.webm[0]);
+  // and one with only baseline H.264 picks that profile
+  const baseline = t => t.includes('42E01E');
+  assert.equal(pickMimeType(baseline), 'video/mp4;codecs=avc1.42E01E');
+  assert.equal(pickMimeType(() => false), null, 'a browser that records nothing reports none');
+  assert.equal(extensionFor(MIME_CANDIDATES.mp4[0]), 'mp4');
+  assert.equal(extensionFor(MIME_CANDIDATES.webm[0]), 'webm');
+  assert.equal(extensionFor(), 'webm');
 });
 
 test('the plan turns a duration into whole frames', () => {
@@ -18,10 +27,13 @@ test('the plan turns a duration into whole frames', () => {
   assert.equal(exportPlan({ fps: 24, seconds: 9999, maxSeconds: 60 }).seconds, 60);
 });
 
-test('bitrate grows with pixels and stays in a sensible band', () => {
-  assert.ok(pickBitrate(1280, 720, 24) >= 6e6);
+test('bitrate grows with pixels and with the quality setting', () => {
+  assert.ok(pickBitrate(1280, 720, 24) >= 4e6, 'even a small clip gets a usable bitrate');
   assert.ok(pickBitrate(1920, 1080, 24) > pickBitrate(1280, 720, 24));
-  assert.ok(pickBitrate(3840, 2160, 60) <= 40e6);
+  assert.ok(pickBitrate(1920, 1080, 24, 'master') > pickBitrate(1920, 1080, 24, 'standard'));
+  assert.equal(pickBitrate(1920, 1080, 24, 'master'), pickBitrate(1920, 1080, 24, 'standard') * QUALITIES.master);
+  assert.ok(pickBitrate(3840, 2160, 60, 'master') <= 200e6);
+  assert.equal(pickBitrate(1920, 1080, 24, 'nonsense'), pickBitrate(1920, 1080, 24, 'high'));
 });
 
 test('progress reports a fraction and a countdown', () => {

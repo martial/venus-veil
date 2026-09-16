@@ -1,6 +1,6 @@
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 import { PRESETS, applyPreset } from './presets.js';
-import { RESOLUTIONS } from './record.js';
+import { QUALITIES, RESOLUTIONS } from './record.js';
 
 /**
  * Control panel. A handful of essentials and five looks by default; everything
@@ -121,7 +121,10 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
   // ---------------------------------------------------------------- export
   if (exportSettings) {
     const fExport = gui.addFolder('Export');
+    fExport.add(exportSettings, 'format', { 'MP4 (H.264)': 'mp4', 'WebM (VP9)': 'webm' }).name('format');
     fExport.add(exportSettings, 'resolution', Object.keys(RESOLUTIONS)).name('resolution');
+    fExport.add(exportSettings, 'quality', Object.keys(QUALITIES)).name('quality');
+    fExport.add(exportSettings, 'orbit', 0, 180, 1).name('camera orbit (°)');
     fExport.add(exportSettings, 'fps', [12, 24, 25, 30]).name('frames per second');
     fExport.add(exportSettings, 'seconds', 1, 60, 1).name('duration (s)');
     if (projector) fExport.add(exportSettings, 'generated', [256, 384, 512]).name('generated resolution');

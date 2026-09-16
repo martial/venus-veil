@@ -11,7 +11,7 @@ import { createPost } from './render/post.js';
 import { createQuality } from './render/quality.js';
 import { createUI } from './ui.js';
 import { PRESET_NAMES } from './presets.js';
-import { createVideoRecorder, downloadBlob, exportPlan, formatProgress, RESOLUTIONS } from './record.js';
+import { createVideoRecorder, downloadBlob, exportPlan, formatProgress, QUALITIES, RESOLUTIONS } from './record.js';
 import { createSculpturePipeline } from './pipeline/sculpture.js';
 import { createProjector } from './projection/projector.js';
 
@@ -141,7 +141,7 @@ async function start() {
   renderer.domElement.addEventListener('pointerleave', () => { hasLastHit = false; wind.clearWand(); });
 
   // offline recording: one generated frame per exported frame, however long it takes
-  const exportSettings = { fps: 24, seconds: 8, resolution: '1920 × 1080', generated: 384 };
+  const exportSettings = { fps: 24, seconds: 8, resolution: '1920 × 1080', generated: 384, format: 'mp4', quality: 'high', orbit: 0 };
   const recording = { active: false, cancel: false };
   const progressEl = $('progress'), progressBar = $('progress-bar'), progressLabel = $('progress-label');
   const showProgress = (text, percent) => {
@@ -167,7 +167,7 @@ async function start() {
     };
     let recorder;
     try {
-      recorder = createVideoRecorder(renderer.domElement, { fps: plan.fps });
+      recorder = createVideoRecorder(renderer.domElement, { fps: plan.fps, format: exportSettings.format, quality: exportSettings.quality });
     } catch (error) {
       toast(error.message, 5000);
       return;
@@ -194,9 +194,19 @@ async function start() {
     }
     const started = performance.now();
     let time = timer.getElapsed();
+    // an optional slow orbit, so a recorded clip has camera movement of its own
+    const orbitStep = THREE.MathUtils.degToRad(exportSettings.orbit || 0) / plan.frames;
+    const orbitAxis = new THREE.Vector3(0, 1, 0);
+    const orbitOffset = new THREE.Vector3();
     try {
       recorder.start();
       for (let frame = 0; frame < plan.frames && !recording.cancel; frame++) {
+        if (orbitStep) {
+          orbitOffset.copy(camera.position).sub(controls.target).applyAxisAngle(orbitAxis, orbitStep);
+          camera.position.copy(controls.target).add(orbitOffset);
+          camera.lookAt(controls.target);
+          camera.updateMatrixWorld();
+        }
         const steps = Math.max(1, Math.round(plan.dt / stepper.dt));
         wind.update(solver.time, plan.dt);
         for (let s = 0; s < steps; s++) solver.step(stepper.dt, wind.sampleAt);
@@ -224,7 +234,7 @@ async function start() {
         await new Promise(resolve => setTimeout(resolve, 0));
       }
       const blob = await recorder.stop();
-      const name = `venus-veil-${ui.state.look}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.webm`;
+      const name = `venus-veil-${ui.state.look}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.${recorder.extension}`;
       downloadBlob(blob, name);
       showProgress(`saved ${name} · ${(blob.size / 1e6).toFixed(1)} MB`, 100);
       toast(recording.cancel ? 'recording stopped, partial clip saved' : `recorded ${plan.frames} frames`);
