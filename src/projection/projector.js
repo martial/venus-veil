@@ -40,6 +40,11 @@ export const PROJECTOR_DEFAULTS = {
   maxFps: 30,
   follow: true,
   mirror: true,
+  engine: 'fast',      // 'fast' one-step live engine · 'fine' / 'best' multi-step, for recordings
+  steps: 0,            // 0 = the engine's own default
+  cfg: null,
+  carry: 0.45,         // how much of the previous frame each new one starts from
+  cnScale: 0,          // 0 = the engine's own default depth strength
   priority: false,     // a recording waits its turn on the service instead of skipping a frame
   liveInterval: 1,     // re-rasterise live occlusion every n frames (raised by the frame budget)
   physicsRelief: 0.25, // while projecting, how much of the sculpture still shapes the cloth
@@ -57,6 +62,8 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     status: 'offline', error: null, model: null, device: null,
     endpoint: 'http://127.0.0.1:5193',   // direct (the dev proxy /projector adds a hop)
     busy: false, requested: 0, presented: 0, fps: 0, latencyMs: 0, inferenceMs: 0, sizes: [256],
+    engines: ['fast'], engine: 'fast', perFrameMs: {},   // measured cost of each engine
+    resetCarry: false,
     driftPhase: 0, driftLabel: 'base prompt', slot: 1,
   };
 
@@ -223,6 +230,8 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       state.model = h.model;
       state.device = h.device;
       if (Array.isArray(h.sizes) && h.sizes.length) state.sizes = h.sizes;
+      if (Array.isArray(h.engines) && h.engines.length) state.engines = h.engines;
+      state.engine = h.engine || state.engine;
     } catch (error) {
       state.status = 'offline';
       state.error = null;
@@ -269,11 +278,19 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
         frame_id: frameId, size: params.size, prompt: params.prompt, seed: params.seed,
         guidance: params.guidance, drift: params.wander ? params.drift : 0, drift_phase: state.driftPhase,
         format: 'rgba', priority: params.priority,
+        engine: params.engine,
+        steps: params.steps || undefined,
+        cfg: params.cfg ?? undefined,
+        carry: params.carry,
+        cn_scale: params.cnScale || undefined,
+        reset: state.resetCarry || undefined,
       }, params.upright ? rotateQuarter(pending.model, params.size, pending.turned) : pending.model);
       const tSend = performance.now();
+      state.resetCarry = false;
       const response = await fetch(`${state.endpoint}/generate`, {
         method: 'POST', body, headers: { 'Content-Type': 'application/octet-stream' },
-        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20000)]),
+        // a multi-step engine can take a minute, and may load itself first
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(params.engine === 'fast' ? 20000 : 600000)]),
       });
       if (epoch !== generation) return;
       if (response.status === 429) { lastRequest = performance.now() + 60; return; }
@@ -313,6 +330,9 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       state.fps = state.fps ? state.fps * 0.85 + instant * 0.15 : instant;
       lastPresent = t;
       state.latencyMs = t - started;
+      state.perFrameMs[params.engine] = state.perFrameMs[params.engine]
+        ? state.perFrameMs[params.engine] * 0.7 + (t - started) * 0.3
+        : t - started;
       state.timings = {
         step: tCapture - started, capture: tSend - tCapture, server: tHeaders - tSend, body: tBody - tHeaders,
         decode: tDecoded - tBody, present: t - tDecoded, inference: Number(response.headers.get('X-Inference-Ms')) || 0,
@@ -445,6 +465,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     folder.add(params, 'wanderSpeed', 0, 1, 0.01).name('wander speed');
     folder.add(params, 'guidance', 0.3, 2, 0.01).name('edge strength');
     folder.add(params, 'emphasis', 0, 1, 0.01).name('sculpture in depth map');
+    folder.add(params, 'carry', 0, 0.9, 0.05).name('carry previous frame');
     folder.add(params, 'upright').name('figure upright for model');
     folder.add(params, 'size', [256, 384, 512]).name('generated resolution').onChange(value => {
       const n = Number(value);

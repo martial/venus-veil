@@ -17,4 +17,8 @@ if [ ! -f .models/coreml-sketch/metadata.json ]; then
     .venv-projector/bin/python server/prepare_models.py --sizes 256
   fi
 fi
+if [ ! -d .models/hf-cache/models--lllyasviel--control_v11f1p_sd15_depth ]; then
+  echo "downloading the recording engine (depth ControlNet + LCM, about 2.5 GB)"
+  .venv-projector/bin/python server/fetch_quality.py
+fi
 echo "ready: npm run projector"

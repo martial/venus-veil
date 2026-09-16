@@ -70,6 +70,42 @@ That clip is 1920 frames and takes roughly 5 minutes, most of it waiting for the
 panel with `H` first if you want to watch it being made; the panel is never in the picture. Older WebM clips convert with
 `npm run to-mp4 -- <clip.webm>` (requires ffmpeg).
 
+## Image engines
+
+Two ways to make the projected image, chosen in **Export › image engine**. Live projection always
+uses the fast one.
+
+| Engine | What it is | Steps | Per frame at 512 px |
+|---|---|---|---|
+| live | SDXS DreamShaper distilled to one step, sketch ControlNet, Core ML | 1 | ~0.15 s |
+| fine | DreamShaper 8 + depth ControlNet + LCM-LoRA, on Metal | 8 | ~11 s |
+| best | DreamShaper 8 + depth ControlNet, DPM++ 2M Karras, guidance 4 | 18 | ~32 s |
+
+![depth capture, then the same frame through live, fine and best](assets/reference/engines.png)
+
+*The same veil depth (left) through the three engines: live, fine, best.*
+
+The two slow engines are a different kind of picture, not just more of the same one: they read the
+**depth map itself** rather than edges traced from it, they sample properly instead of taking one
+distilled step, and they use a negative prompt. They are for recordings; a frame takes seconds.
+
+- **Carry:** each frame starts from the previous generated image (**carry previous frame**, 0.45),
+  so stone stays stone and the light persists while the folds change. It also halves the cost. A
+  recording resets it on the first frame.
+- **Memory:** only one engine is resident. Asking for a slow engine unloads the fast one and takes
+  20–30 s; it is released again after three idle minutes. Below about 1.2 GB free the service
+  refuses with a message rather than dragging the machine into swap.
+- **Timing:** a recording shows an estimate and asks for a second press when it will take more than
+  two minutes. Choosing a slow engine drops **new image per second** to 6 (fine) or 2 (best), which
+  with the crossfade still gives 60 fps motion. A 4 s clip at 60 fps on `best` with 2 images per
+  second is 8 generated images, about 5 minutes.
+- **This machine, honestly:** the times above are measured with nothing else running. With Chrome
+  open and the system in swap, a `best` frame has taken up to 14 minutes here. Quit what you can
+  before a long recording, and prefer `fine` for anything but a few hero frames.
+- Weights (~2.5 GB: depth ControlNet, LCM-LoRA, DreamShaper 8 in fp16) come down with
+  `npm run projector:setup`, and `.venv-projector/bin/python server/bench_engines.py` measures
+  seconds per frame on your machine.
+
 ## Frame rate
 
 The studio measures its own frame time and holds the rate above **Performance › minimum fps**

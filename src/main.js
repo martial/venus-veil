@@ -144,6 +144,17 @@ async function start() {
   const exportSettings = {
     fps: 60, seconds: 32, resolution: '3840 × 2160', generated: 512,
     format: 'mp4', quality: 'master', diffusionFps: 8, orbit: 40, hold: 0.2,
+    engine: 'fast', steps: 0,
+  };
+  // measured cost per generated frame, so the estimate is honest about this machine
+  const ENGINE_COST_MS = { fast: 150, fine: 11000, best: 32000 };
+  const estimateRecording = () => {
+    const plan = exportPlan(exportSettings);
+    const interval = diffusionInterval(plan.fps, exportSettings.diffusionFps);
+    const images = Math.ceil(plan.frames / interval);
+    const perImage = projector.state.perFrameMs?.[exportSettings.engine] || ENGINE_COST_MS[exportSettings.engine] || 150;
+    const seconds = (images * perImage) / 1000 + plan.frames * 0.05;
+    return { plan, images, seconds, clock: `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, '0')}` };
   };
   const recording = { active: false, cancel: false };
   const progressEl = $('progress'), progressBar = $('progress-bar'), progressLabel = $('progress-label');
@@ -153,8 +164,19 @@ async function start() {
     progressEl.classList.add('visible');
   };
 
+  let armed = 0;
   async function recordVideo() {
     if (recording.active) { recording.cancel = true; return; }
+    const estimate = estimateRecording();
+    // a multi-step engine turns a 32 s master into an evening: say so, then wait
+    // for a second press
+    if (estimate.seconds > 120 && performance.now() - armed > 20000) {
+      armed = performance.now();
+      showProgress(`${estimate.plan.frames} frames · ${estimate.images} generated images · about ${estimate.clock} — press record again to start`, 4);
+      toast(`this recording will take about ${estimate.clock}`, 6000);
+      return;
+    }
+    armed = 0;
     const plan = exportPlan(exportSettings);
     const target = RESOLUTIONS[exportSettings.resolution];
     const generated = Number(exportSettings.generated);
@@ -166,6 +188,8 @@ async function start() {
       scale: quality.params.scale,
       level: quality.params.level,
       running: projector.params.running,
+      engine: projector.params.engine,
+      steps: projector.params.steps,
       generated: projector.params.size,
       aspect: camera.aspect,
     };
@@ -180,6 +204,9 @@ async function start() {
     applyQuality();
     projector.params.running = false;           // frames are driven by hand below
     projector.params.priority = true;           // and they wait their turn on the service
+    projector.params.engine = exportSettings.engine;
+    projector.params.steps = exportSettings.steps;
+    projector.state.resetCarry = true;          // a clip starts from a clean frame
     const [exportWidth, exportHeight] = evenSize(...(target || [viewport.clientWidth, viewport.clientHeight]));
     renderer.setPixelRatio(1);
     renderer.setSize(exportWidth, exportHeight, false);
@@ -268,6 +295,8 @@ async function start() {
       sculpture.setQuiet(false);
       projector.params.running = before.running;
       projector.params.priority = false;
+      projector.params.engine = before.engine === 'fast' ? 'fast' : before.engine;
+      projector.params.steps = before.steps;
       if (projector.params.enabled && projector.params.size !== before.generated) {
         projector.setSize(before.generated);
         projector.clearSlots();

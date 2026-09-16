@@ -8,16 +8,19 @@ proxies /projector here; the published page talks to it directly.
 Binary protocol (no base64, no PNG on the way in):
     POST /generate
       body   = uint32 little-endian JSON length | JSON (utf-8) | depth bytes (size × size, uint8)
-      JSON   = { frame_id, size, prompt, seed, guidance, drift, drift_phase, format }
+      JSON   = { frame_id, size, prompt, seed, guidance, drift, drift_phase, format,
+                 engine ('fast' | 'fine' | 'best'), steps, cfg, carry, negative }
       200    → format 'png'  : image/png (top-down)
                format 'rgba' : raw RGBA bytes, rows bottom-up (ready for a GL texture)
                headers X-Frame-Id, X-Inference-Ms, X-Drift-Label, X-Stages
       429    → a frame is already being generated
       503    → model still loading or failed
 """
+import gc
 import json
 import os
 import struct
+import subprocess
 import sys
 import threading
 import time
@@ -30,11 +33,19 @@ PORT = int(os.environ.get('VENUS_PROJECTOR_PORT', '5193'))
 DEFAULT_PROMPT = ('a prehistoric Venus figurine carved from weathered limestone, draped in flowing translucent fabric, '
                   'soft museum spotlight, sculptural folds, black background')
 ALLOWED_ORIGINS = ['http://127.0.0.1:5190', 'http://localhost:5190', 'https://martial.github.io']
+NEGATIVE_PROMPT = ('blurry, low quality, jpeg artifacts, text, watermark, signature, frame, border, '
+                   'flat, washed out, duplicated limbs, deformed hands, cartoon')
+
+ENGINES = ('fast', 'fine', 'best')      # fast = one-step Core ML, the others multi-step on Metal
+IDLE_RELEASE_S = 180                    # the quality engine gives its memory back when unused
 
 state = {'status': 'loading', 'model': 'IDKiro/sdxs-512-dreamshaper + sketch ControlNet', 'device': 'coreml (cpu/gpu/ane)',
-         'error': None, 'generated': 0, 'last_ms': None, 'sizes': [256]}
+         'error': None, 'generated': 0, 'last_ms': None, 'sizes': [256], 'engine': 'fast',
+         'engines': ['fast'], 'engine_error': None}
 lock = threading.Lock()
-generator = None
+generator = None          # the fast Core ML engine
+quality = None            # the multi-step engine, loaded on demand
+last_quality_use = 0.0
 
 
 class FrameError(ValueError):
@@ -69,6 +80,13 @@ def parse_frame(body, allowed_sizes=(128, 192, 256, 384, 512)):
         'drift_phase': max(0., min(1e6, float(meta.get('drift_phase', 0)))),
         'format': 'rgba' if meta.get('format') == 'rgba' else 'png',
         'priority': bool(meta.get('priority')),
+        'engine': meta.get('engine') if meta.get('engine') in ENGINES else 'fast',
+        'cn_scale': max(0.2, min(1.6, float(meta['cn_scale']))) if meta.get('cn_scale') is not None else None,
+        'steps': max(1, min(60, int(meta.get('steps') or 0))) if meta.get('steps') else None,
+        'cfg': max(0., min(15., float(meta['cfg']))) if meta.get('cfg') is not None else None,
+        'carry': max(0., min(0.95, float(meta['carry']))) if meta.get('carry') is not None else None,
+        'negative': str(meta.get('negative'))[:600] if meta.get('negative') else None,
+        'reset': bool(meta.get('reset')),
     }
     return frame, pixels
 
@@ -82,10 +100,87 @@ def load_model():
         state['sizes'] = generator.sizes or [256]
         generator.warmup(DEFAULT_PROMPT)
         state.update(status='ready', load_s=round(time.perf_counter() - started, 1))
-        print(f'projector ready in {state["load_s"]} s · sizes {state["sizes"]}', flush=True)
+        try:
+            import quality as quality_module
+            if quality_module.available():
+                state['engines'] = list(ENGINES)
+        except Exception as error:  # noqa: BLE001
+            state['engine_error'] = str(error)
+        print(f'projector ready in {state["load_s"]} s · sizes {state["sizes"]} · engines {state["engines"]}', flush=True)
     except Exception as error:  # noqa: BLE001 — report any load failure to the page
         state.update(status='error', error=str(error))
         print(f'projector failed to load: {error}', flush=True)
+
+
+def free_memory_gb():
+    """Free + inactive pages, in GB. The quality engine needs real headroom."""
+    try:
+        out = subprocess.run(['vm_stat'], capture_output=True, text=True, timeout=5).stdout
+        pages = 0
+        for line in out.splitlines():
+            if line.startswith(('Pages free', 'Pages inactive', 'Pages speculative')):
+                pages += int(line.split(':')[1].strip().rstrip('.'))
+        return pages * 16384 / (1024 ** 3)
+    except Exception:  # noqa: BLE001 — a missing vm_stat must not block a request
+        return None
+
+
+def use_engine(name, preset_reset=False):
+    """Make `name` the resident engine, unloading the other. Called on a worker thread."""
+    global generator, quality, last_quality_use
+    if name == 'fast':
+        if quality is not None:
+            quality.unload()
+            quality = None
+            print('quality engine released', flush=True)
+        if generator is None:
+            from generator import SketchGenerator
+            generator = SketchGenerator(256, compute_units=os.environ.get('VENUS_COMPUTE_UNITS', 'ALL'))
+            state['sizes'] = generator.sizes or [256]
+        state['engine'] = 'fast'
+        return generator
+    if name not in state['engines']:
+        raise ValueError(f'engine {name} is not installed; run npm run projector:setup')
+    if quality is None:
+        free = free_memory_gb()
+        # measured: the pipeline loads and runs with ~1.5 GB free, leaning on
+        # compression; below that the machine starts thrashing instead
+        if free is not None and free < 1.2:
+            raise MemoryError(f'only {free:.1f} GB free: close a few windows before recording with {name}')
+    import quality as quality_module
+    if generator is not None:
+        # the two engines are mutually exclusive on this machine's memory
+        generator.loaded.clear()
+        generator = None
+        gc.collect()
+        print('fast engine released', flush=True)
+    if quality is None:
+        started = time.perf_counter()
+        quality = quality_module.TorchDepthGenerator(preset=name)
+        quality.warmup(DEFAULT_PROMPT)
+        print(f'quality engine ready in {time.perf_counter() - started:.1f} s ({quality.device})', flush=True)
+    quality.set_preset(name)
+    if preset_reset:
+        quality.reset_carry()
+    last_quality_use = time.time()
+    state['engine'] = name
+    return quality
+
+
+def release_idle_engine():
+    """Give the quality engine's memory back when nothing has used it for a while."""
+    global quality
+    if quality is None or time.time() - last_quality_use < IDLE_RELEASE_S:
+        return
+    if not lock.acquire(blocking=False):
+        return
+    try:
+        quality.unload()
+        quality = None
+        state['engine'] = 'unloaded'
+        print('quality engine released (idle)', flush=True)
+    finally:
+        lock.release()
 
 
 def create_app(load=True):
@@ -102,7 +197,7 @@ def create_app(load=True):
     app = FastAPI(title='Venus Veil projector', lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS, allow_methods=['GET', 'POST'],
                        allow_headers=['Content-Type'],
-                       expose_headers=['X-Frame-Id', 'X-Inference-Ms', 'X-Drift-Label', 'X-Stages'])
+                       expose_headers=['X-Frame-Id', 'X-Inference-Ms', 'X-Drift-Label', 'X-Stages', 'X-Engine'])
 
     @app.middleware('http')
     async def private_network_access(request: Request, call_next):
@@ -114,7 +209,9 @@ def create_app(load=True):
 
     @app.get('/health')
     async def health():
-        return dict(state, busy=lock.locked(), prompt_drift=True, default_prompt=DEFAULT_PROMPT)
+        release_idle_engine()
+        return dict(state, busy=lock.locked(), prompt_drift=True, default_prompt=DEFAULT_PROMPT,
+                    negative_prompt=NEGATIVE_PROMPT)
 
     @app.post('/generate')
     async def generate(request: Request):
@@ -127,19 +224,28 @@ def create_app(load=True):
         # A recording waits its turn; live frames are dropped rather than queued.
         # The wait happens on a worker thread: blocking here would stall every
         # other request, health included.
+        # loading a multi-step engine takes half a minute and happens under this
+        # lock, so a waiting recording must be patient
         acquired = await run_in_threadpool(
-            lambda: lock.acquire(blocking=frame['priority'], timeout=30 if frame['priority'] else -1))
+            lambda: lock.acquire(blocking=frame['priority'], timeout=300 if frame['priority'] else -1))
         if not acquired:
             return Response('one frame is already being generated', status_code=429)
         try:
             def work():
                 import numpy as np
                 from generator import encode_png
-                if frame['size'] != generator.size:
-                    generator.load_size(frame['size'])
+                engine = use_engine(frame['engine'], preset_reset=frame['reset'])
                 depth = np.frombuffer(pixels, dtype=np.uint8).reshape(frame['size'], frame['size'])
-                rgb, stages = generator.generate(depth, frame['prompt'], frame['seed'], frame['guidance'],
-                                                 frame['drift'], frame['drift_phase'])
+                if frame['engine'] == 'fast':
+                    if frame['size'] != engine.size:
+                        engine.load_size(frame['size'])
+                    rgb, stages = engine.generate(depth, frame['prompt'], frame['seed'], frame['guidance'],
+                                                  frame['drift'], frame['drift_phase'])
+                else:
+                    rgb, stages = engine.generate(depth, frame['prompt'], frame['seed'], frame['guidance'],
+                                                  frame['drift'], frame['drift_phase'], steps=frame['steps'],
+                                                  cfg=frame['cfg'], carry=frame['carry'], negative=frame['negative'],
+                                                  cn_scale=frame['cn_scale'])
                 if frame['format'] == 'rgba':
                     rgba = np.empty((rgb.shape[0], rgb.shape[1], 4), dtype=np.uint8)
                     rgba[..., :3] = rgb[::-1]
@@ -153,10 +259,12 @@ def create_app(load=True):
             lock.release()
         state['generated'] += 1
         state['last_ms'] = stages['total_ms']
+        engine_object = quality if frame['engine'] != 'fast' else generator
         return Response(payload, media_type='image/png' if frame['format'] == 'png' else 'application/octet-stream', headers={
             'X-Frame-Id': str(frame['frame_id']),
             'X-Inference-Ms': str(stages['total_ms']),
-            'X-Drift-Label': generator.drift_label,
+            'X-Engine': frame['engine'],
+            'X-Drift-Label': getattr(engine_object, 'drift_label', frame['engine']),
             'X-Stages': json.dumps(stages),
             'Cache-Control': 'no-store',
         })

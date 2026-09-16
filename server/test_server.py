@@ -42,6 +42,41 @@ class ParseFrameTest(unittest.TestCase):
             parse_frame(struct.pack('<I', 999999) + b'{}', (256,))
 
 
+class EngineTest(unittest.TestCase):
+    def test_engine_and_sampling_fields(self):
+        frame, _ = parse_frame(pack({'size': 256, 'engine': 'best', 'steps': 18, 'cfg': 4.0,
+                                     'carry': 0.45, 'cn_scale': 0.65, 'reset': True}, bytes(256 * 256)), (256,))
+        self.assertEqual(frame['engine'], 'best')
+        self.assertEqual(frame['steps'], 18)
+        self.assertEqual(frame['cfg'], 4.0)
+        self.assertEqual(frame['carry'], 0.45)
+        self.assertEqual(frame['cn_scale'], 0.65)
+        self.assertTrue(frame['reset'])
+
+    def test_unknown_engine_falls_back_to_the_live_one(self):
+        frame, _ = parse_frame(pack({'size': 256, 'engine': 'wishful'}, bytes(256 * 256)), (256,))
+        self.assertEqual(frame['engine'], 'fast')
+        frame, _ = parse_frame(pack({'size': 256}, bytes(256 * 256)), (256,))
+        self.assertEqual(frame['engine'], 'fast')
+        self.assertIsNone(frame['steps'])
+        self.assertIsNone(frame['cfg'])
+
+    def test_sampling_values_are_clamped(self):
+        frame, _ = parse_frame(pack({'size': 256, 'engine': 'fine', 'steps': 500, 'cfg': 99,
+                                     'carry': 5, 'cn_scale': 9}, bytes(256 * 256)), (256,))
+        self.assertEqual(frame['steps'], 60)
+        self.assertEqual(frame['cfg'], 15.)
+        self.assertEqual(frame['carry'], .95)
+        self.assertEqual(frame['cn_scale'], 1.6)
+
+
+class MemoryGuardTest(unittest.TestCase):
+    def test_free_memory_reads_a_plausible_number(self):
+        from server import free_memory_gb
+        free = free_memory_gb()
+        self.assertTrue(free is None or 0 <= free < 1024, free)
+
+
 class HealthTest(unittest.TestCase):
     def test_health_and_private_network_preflight_without_model(self):
         from fastapi.testclient import TestClient
@@ -49,6 +84,8 @@ class HealthTest(unittest.TestCase):
         client = TestClient(create_app(load=False))
         health = client.get('/health').json()
         self.assertIn(health['status'], ('loading', 'ready', 'error'))
+        self.assertIn('fast', health['engines'])
+        self.assertIn('engine', health)
         response = client.options('/generate', headers={
             'Origin': 'https://martial.github.io', 'Access-Control-Request-Method': 'POST',
             'Access-Control-Request-Headers': 'content-type', 'Access-Control-Request-Private-Network': 'true'})

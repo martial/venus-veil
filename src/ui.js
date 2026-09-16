@@ -121,6 +121,14 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
   // ---------------------------------------------------------------- export
   if (exportSettings) {
     const fExport = gui.addFolder('Export');
+    fExport.add(exportSettings, 'engine', { 'live · one step': 'fast', 'fine · 8 steps': 'fine', 'best · 18 steps': 'best' })
+      .name('image engine').onChange(engine => {
+        // a slow engine wants fewer images: every frame would take hours
+        exportSettings.diffusionFps = engine === 'fast' ? exportSettings.fps : engine === 'fine' ? 6 : 2;
+        if (engine !== 'fast' && exportSettings.generated > 512) exportSettings.generated = 512;
+        fExport.controllers.forEach(c => c.updateDisplay());
+      });
+    fExport.add(exportSettings, 'steps', 0, 40, 1).name('steps (0 = engine default)');
     fExport.add(exportSettings, 'format', { 'MP4 (H.264)': 'mp4', 'WebM (VP9)': 'webm' }).name('format');
     fExport.add(exportSettings, 'resolution', Object.keys(RESOLUTIONS)).name('resolution');
     fExport.add(exportSettings, 'quality', Object.keys(QUALITIES)).name('quality');
