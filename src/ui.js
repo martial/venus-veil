@@ -1,14 +1,48 @@
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
+import { PRESETS, applyPreset } from './presets.js';
 
 /**
- * lil-gui control panel. Every control writes straight into the live params
- * objects; `apply` callbacks push values that need a re-upload.
+ * Control panel. A handful of essentials and five looks by default; everything
+ * else lives behind "expert controls". Controls write straight into the live
+ * parameter objects, with `apply` callbacks where a value needs re-uploading.
  */
 export function createUI({ wind, solver, material, studio, post, actions, sculpture, projector, quality, applyQuality }) {
   const gui = new GUI({ title: 'venus veil', width: 290 });
   gui.domElement.classList.add('veil-gui');
+  const context = { wind, solver, material, studio, post, sculpture, projector };
+  const state = { look: 'veil', expert: false };
 
-  const fWind = gui.addFolder('Wind');
+  const refresh = () => gui.controllersRecursive().forEach(c => c.updateDisplay());
+
+  // ---------------------------------------------------------------- essentials
+  const lookOptions = Object.fromEntries(Object.entries(PRESETS).map(([key, p]) => [p.label, key]));
+  const note = document.createElement('div');
+  note.className = 'look-note';
+  note.textContent = PRESETS[state.look].note;
+  const lookController = gui.add(state, 'look', lookOptions).name('look').onChange(name => {
+    const preset = applyPreset(name, context);
+    note.textContent = preset.note;
+    refresh();
+  });
+  lookController.domElement.parentElement.insertBefore(note, lookController.domElement.nextSibling);
+
+  gui.add(wind.params, 'speed', 0, 5, 0.01).name('wind');
+  gui.add(wind.params, 'turbulence', 0, 3, 0.01).name('turbulence');
+  gui.add(material, 'opacity', 0, 1, 0.01).name('veil opacity');
+  gui.add(studio.params, 'keyIntensity', 0, 200, 1).name('light').onChange(studio.apply);
+  if (sculpture) {
+    gui.add(sculpture.params, 'amplitude', 0, 0.6, 0.005).name('sculpture relief')
+      .onChange(v => solver.setAmplitude(v));
+  }
+  if (projector) {
+    gui.add(projector.params, 'enabled').name('live projection').onChange(v => { projector.setEnabled(v); refresh(); });
+  }
+
+  // ---------------------------------------------------------------- expert
+  const advanced = [];
+  const folder = title => { const f = gui.addFolder(title); f.close(); advanced.push(f); return f; };
+
+  const fWind = folder('Wind');
   fWind.add(wind.params, 'speed', 0, 5, 0.01).name('speed');
   fWind.add(wind.params, 'gustAmp', 0, 2, 0.01).name('gusts');
   fWind.add(wind.params, 'gustFreq', 0.02, 1, 0.01).name('gust rate');
@@ -19,7 +53,7 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
   fWind.add(wind.params.direction, '2', -1, 1, 0.01).name('dir z');
   fWind.add(wind.params, 'wandStrength', 0, 20, 0.1).name('pointer push');
 
-  const fCloth = gui.addFolder('Cloth');
+  const fCloth = folder('Cloth');
   fCloth.add(solver.params, 'kBase', 0, 120, 1).name('hover spring');
   fCloth.add(solver.params, 'bendCompliance', 0.00005, 0.02, 0.00005).name('softness');
   fCloth.add(solver.params, 'shearCompliance', 0, 0.005, 0.00005).name('shear give');
@@ -28,10 +62,9 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
   fCloth.add(solver.params, 'kDrag', 0, 4, 0.01).name('drag');
   fCloth.add(solver.params, 'kLift', 0, 1, 0.01).name('lift');
   fCloth.add(solver.params, 'iterations', 1, 12, 1).name('iterations');
-  fCloth.close();
 
   const u = material.userData.uniforms;
-  const fSurf = gui.addFolder('Surface');
+  const fSurf = folder('Surface');
   fSurf.add(material, 'opacity', 0, 1, 0.01).name('base opacity');
   fSurf.add(u.uFresnelAlpha, 'value', 0, 1, 0.01).name('edge glow');
   fSurf.add(u.uFresnelPower, 'value', 0.5, 8, 0.05).name('edge falloff');
@@ -45,9 +78,8 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
   fSurf.add(material, 'envMapIntensity', 0, 2, 0.01).name('env reflect');
   fSurf.add(material.normalScale, 'x', 0, 1.5, 0.01).name('weave relief').onChange(v => material.normalScale.set(v, v));
   fSurf.addColor(material, 'color').name('tint');
-  fSurf.close();
 
-  const fLight = gui.addFolder('Light');
+  const fLight = folder('Light');
   fLight.add(studio.params, 'keyIntensity', 0, 400, 1).name('key (cd)').onChange(studio.apply);
   fLight.addColor(studio.params, 'keyColor').name('key color').onChange(studio.apply);
   fLight.add(studio.params, 'keyAngle', 0.1, 1.2, 0.01).name('cone angle').onChange(studio.apply);
@@ -64,35 +96,40 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
   fLight.add(post.params, 'bloomThreshold', 0, 2, 0.01).name('bloom threshold').onChange(post.apply);
   fLight.add(post.params, 'grain', 0, 0.15, 0.001).name('grain').onChange(post.apply);
   fLight.add(post.params, 'vignette', 0, 1, 0.01).name('vignette').onChange(post.apply);
-  fLight.close();
 
   let fSculpt = null;
-  if (sculpture) {
-    fSculpt = gui.addFolder('Sculpture');
-    sculpture.buildControls(fSculpt);
-  }
+  if (sculpture) { fSculpt = folder('Sculpture'); sculpture.buildControls(fSculpt); }
 
   let fProject = null;
-  if (projector) {
-    fProject = gui.addFolder('Projection');
-    projector.buildControls(fProject);
-  }
+  if (projector) { fProject = folder('Projection'); projector.buildControls(fProject); }
 
   if (quality) {
-    const fPerf = gui.addFolder('Performance');
+    const fPerf = folder('Performance');
     fPerf.add(quality.params, 'auto').name('hold frame rate');
     fPerf.add(quality.params, 'floor', 12, 60, 1).name('minimum fps');
     fPerf.add(quality.params, 'scale', 0.4, 1, 0.05).name('resolution').listen().onChange(applyQuality);
     fPerf.add(quality.params, 'level', 0, 2, 1).name('detail step').listen().onChange(applyQuality);
     fPerf.add(quality.params, 'frameMs').name('frame (ms)').listen().disable();
-    fPerf.close();
   }
 
+  const setExpert = on => { for (const f of advanced) on ? f.show() : f.hide(); };
+  gui.add(state, 'expert').name('expert controls').onChange(setExpert);
+  setExpert(false);
+
+  // ---------------------------------------------------------------- actions
   const fActions = gui.addFolder('Actions');
+  if (sculpture) {
+    fActions.add({ load: () => document.getElementById('file-input')?.click() }, 'load').name('load a photo…');
+    fActions.add({ sample: () => sculpture.loadSample() }, 'sample').name('load sample');
+  }
   fActions.add(actions, 'pause').name('pause / resume  (space)');
   fActions.add(actions, 'reset').name('reset cloth  (R)');
   fActions.add(actions, 'capture').name('save PNG  (S)');
-  fActions.add(actions, 'toggleUI').name('hide UI  (H)');
+  fActions.add(actions, 'toggleUI').name('hide panel  (H)');
 
-  return { gui, folders: { fWind, fCloth, fSurf, fLight, fSculpt, fProject, fActions } };
+  return {
+    gui, state, refresh,
+    folders: { fWind, fCloth, fSurf, fLight, fSculpt, fProject, fActions },
+    applyLook(name) { state.look = name; applyPreset(name, context); note.textContent = PRESETS[name].note; refresh(); },
+  };
 }

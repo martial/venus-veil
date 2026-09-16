@@ -435,6 +435,8 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
 
   return {
     params, state, camera, buildControls, setEnabled, update, health, clearSlots,
+    /** Re-apply params that were changed in bulk (a look preset). */
+    refresh() { bindSlots(); applySurface(); applyPhysicsRelief(); report(); },
     /** Request and present one frame now (debug / headless checks). */
     frame: () => requestFrame(),
     get locksSimulation() { return locksSimulation(); },

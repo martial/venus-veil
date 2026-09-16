@@ -39,6 +39,22 @@ The studio measures its own frame time and holds the rate above **Performance â€
 reflection, the shadow refresh and multisampling. The readout next to the fps counter shows the
 current resolution when it is below 100%. Turn **hold frame rate** off to pin the settings by hand.
 
+## Looks
+
+Five presets set the whole studio at once: wind, cloth, surface, light, post and sculpture.
+`?look=storm` opens straight into one.
+
+| Look | What it is |
+|---|---|
+| Veil | sheer organza turning in quiet air (default) |
+| Breath | barely moving air, long slow folds |
+| Storm | hard wind, crisp snapping folds |
+| Relic | the body holds its form under the cloth |
+| Apparition | the diffusion result alone, cloth set free (needs the projector service) |
+
+The panel shows a look, five essentials and the actions. **Expert controls** reveals the full
+set: Wind, Cloth, Surface, Light, Sculpture, Projection and Performance.
+
 ## Controls
 
 Drag to orbit, scroll to zoom, move the pointer through the veil to push it.

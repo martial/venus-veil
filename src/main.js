@@ -10,6 +10,7 @@ import { createStudio } from './render/studio.js';
 import { createPost } from './render/post.js';
 import { createQuality } from './render/quality.js';
 import { createUI } from './ui.js';
+import { PRESET_NAMES } from './presets.js';
 import { createSculpturePipeline } from './pipeline/sculpture.js';
 import { createProjector } from './projection/projector.js';
 
@@ -211,13 +212,16 @@ async function start() {
   $('loading').classList.add('loaded');
   renderer.setAnimationLoop(animate);
   sculpture.loadSample();
-  if (new URLSearchParams(location.search).has('projector')) {
+  const query = new URLSearchParams(location.search);
+  const look = query.get('look');
+  if (look && PRESET_NAMES.includes(look)) ui.applyLook(look);
+  if (query.has('projector') && !projector.params.enabled) {
     projector.setEnabled(true);
-    ui.gui.controllersRecursive().forEach(c => c.updateDisplay());
+    ui.refresh();
   }
 
   window.__veil = {
-    solver, wind, material, studio, post, camera, controls, sculpture, renderer, ribbon, stepper, projector, quality, applyQuality,
+    solver, wind, material, studio, post, camera, controls, sculpture, renderer, ribbon, stepper, projector, quality, applyQuality, ui,
     /** Advance the simulation by `seconds` of wind and render one frame (for headless checks). */
     simulate(seconds = 3, t0 = 0) {
       const dt = stepper.dt, steps = Math.round(seconds / dt);
