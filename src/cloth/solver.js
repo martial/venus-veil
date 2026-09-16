@@ -22,6 +22,7 @@ export const DEFAULT_CLOTH = {
   kBase: 8,             // hover spring stiffness (1/s²) everywhere
   kRetention: 600,      // extra stiffness inside the sculpture mask
   reveal: 1,            // 0..1 ramp applied to relief amplitude + retention
+  reliefScale: 1,       // global damper on the sculpture's hold (live projection lowers it)
   stretchCompliance: 0,
   shearCompliance: 2e-3,
   bendCompliance: 5e-3,
@@ -113,7 +114,7 @@ export class ClothSolver {
   /** Recompute rest positions, rest normals and all rest lengths. Does not move particles. */
   rebuildRest() {
     const { rest, nRest, cA, cB, cL, columns, rows } = this;
-    const amp = this.amplitude * this.params.reveal;
+    const amp = this.amplitude * this.params.reveal * this.params.reliefScale;
     applyRelief(this.shape, this.relief, amp, rest);
     computeGridNormals(rest, columns, rows, nRest);
     for (let k = 0; k < this.constraintCount; k++) {
@@ -235,7 +236,7 @@ export class ClothSolver {
 
     // 3a. weak world-space hover spring everywhere (implicit, unconditionally stable)
     const dt2 = dt * dt;
-    const kBase = P.kBase, kRet = P.kRetention * P.reveal;
+    const kBase = P.kBase, kRet = P.kRetention * P.reveal * P.reliefScale;
     if (kBase > 0) {
       const s = kBase * dt2 / (1 + kBase * dt2);
       for (let i = 0; i < count; i++) {
@@ -249,7 +250,7 @@ export class ClothSolver {
     // 3b. shape matching of the sculpture cluster: rigid fit of the rest body to
     //     its current placement, then a mask-weighted pull toward that fit
     const { target, nTarget } = this;
-    const shaped = this.relief !== null && this.maskWeight > 0 && P.reveal > 0;
+    const shaped = this.relief !== null && this.maskWeight > 0 && P.reveal > 0 && P.reliefScale > 0;
     if (shaped) {
       this.updateShapeTarget();
       if (kRet > 0) {
@@ -271,7 +272,7 @@ export class ClothSolver {
     const alphaTilde = [P.stretchCompliance / dt2, P.shearCompliance / dt2, P.bendCompliance / dt2];
     const collided = this.collided;
     collided.fill(0);
-    const useCollider = P.collider && shaped && this.amplitude * P.reveal > 0;
+    const useCollider = P.collider && shaped && this.amplitude * P.reveal * P.reliefScale > 0;
     const slack = P.reliefSlack;
     const floorY = P.floorY;
     for (let it = 0; it < P.iterations; it++) {

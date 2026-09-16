@@ -8,6 +8,8 @@
  *          otherwise 20..255, brighter = nearer (between near and far).
  *   metric Float32Array(size²), bottom-left origin (GL texture rows) — view-space
  *          distance of the nearest surface, EMPTY_DEPTH where nothing was drawn.
+ *   value  Float32Array(size²), top-left origin — an optional per-vertex field
+ *          (the sculpture relief) sampled at the nearest surface.
  */
 export const EMPTY_DEPTH = 1e4;
 
@@ -15,6 +17,7 @@ export function createDepthRaster(size) {
   return {
     size,
     gray: new Uint8Array(size * size),
+    value: new Float32Array(size * size),
     metric: new Float32Array(size * size),
     zbuf: new Float32Array(size * size),
     screen: null,   // per-vertex [sx, sy, ndcZ, 1/w]
@@ -28,8 +31,8 @@ export function createDepthRaster(size) {
  * indices:   Uint32Array/Uint16Array triangle list
  * m:         16 numbers, column-major view-projection matrix (THREE.Matrix4.elements)
  */
-export function rasterDepth(raster, positions, indices, m, near, far) {
-  const { size, gray, metric, zbuf } = raster;
+export function rasterDepth(raster, positions, indices, m, near, far, values = null) {
+  const { size, gray, metric, zbuf, value } = raster;
   const vertexCount = positions.length / 3;
   if (!raster.screen || raster.screen.length !== vertexCount * 4) {
     raster.screen = new Float64Array(vertexCount * 4);
@@ -38,8 +41,11 @@ export function rasterDepth(raster, positions, indices, m, near, far) {
   const { screen, clip } = raster;
   gray.fill(0);
   metric.fill(EMPTY_DEPTH);
+  value.fill(0);
   zbuf.fill(Infinity);
   raster.covered = 0;
+  raster.nearest = Infinity;
+  raster.farthest = -Infinity;
   const range = Math.max(1e-6, far - near);
 
   for (let i = 0, j = 0; i < positions.length; i += 3, j += 4) {
@@ -56,7 +62,8 @@ export function rasterDepth(raster, positions, indices, m, near, far) {
     screen[j + 3] = inv;
   }
 
-  const draw = (c, a, b, d) => {
+  // vertex index for each screen slot, so the value channel can be interpolated
+  const draw = (c, a, b, d, va = -1, vb = -1, vd = -1) => {
     const ax = c[a], ay = c[a + 1], az = c[a + 2], aw = c[a + 3];
     const bx = c[b], by = c[b + 1], bz = c[b + 2], bw = c[b + 3];
     const dx = c[d], dy = c[d + 1], dz = c[d + 2], dw = c[d + 3];
@@ -86,6 +93,12 @@ export function rasterDepth(raster, positions, indices, m, near, far) {
         const t = 1 - Math.min(1, Math.max(0, (dist - near) / range));
         gray[k] = 20 + Math.round(235 * t);
         metric[(size - 1 - y) * size + x] = dist;
+        if (dist < raster.nearest) raster.nearest = dist;
+        if (dist > raster.farthest) raster.farthest = dist;
+        if (values && va >= 0) {
+          // perspective-correct interpolation of the per-vertex field
+          value[k] = (u * values[va] * aw + v * values[vb] * bw + w * values[vd] * dw) * dist;
+        }
       }
     }
   };
@@ -107,7 +120,7 @@ export function rasterDepth(raster, positions, indices, m, near, far) {
 
   for (let i = 0; i < indices.length; i += 3) {
     const a = indices[i] * 4, b = indices[i + 1] * 4, d = indices[i + 2] * 4;
-    if (!outside(a) && !outside(b) && !outside(d)) { draw(screen, a, b, d); continue; }
+    if (!outside(a) && !outside(b) && !outside(d)) { draw(screen, a, b, d, indices[i], indices[i + 1], indices[i + 2]); continue; }
     const tri = [
       [clip[a], clip[a + 1], clip[a + 2], clip[a + 3]],
       [clip[b], clip[b + 1], clip[b + 2], clip[b + 3]],
@@ -126,6 +139,30 @@ export function rasterDepth(raster, positions, indices, m, near, far) {
     for (let n = 1; n < poly.length - 1; n++) draw(c, 0, n * 4, (n + 1) * 4);
   }
   return raster;
+}
+
+/**
+ * Build the model's structure image from a capture: depth stretched over the
+ * veil's own near/far range (so folds and relief read, instead of a few grey
+ * levels inside the whole scene range), optionally mixed with the sculpture
+ * relief so the body, not just the sheet outline, guides generation.
+ */
+export function buildStructure(raster, { emphasis = 0, floor = 30 } = {}) {
+  const { size, gray, value, metric } = raster;
+  const near = raster.nearest, far = raster.farthest;
+  const span = Math.max(1e-4, far - near);
+  const scale = 255 - floor;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const k = y * size + x;
+      if (gray[k] === 0) continue;
+      const dist = metric[(size - 1 - y) * size + x];
+      const depthShade = 1 - Math.min(1, Math.max(0, (dist - near) / span));
+      const shade = emphasis > 0 ? depthShade * (1 - emphasis) + Math.min(1, Math.max(0, value[k])) * emphasis : depthShade;
+      gray[k] = floor + Math.round(scale * shade);
+    }
+  }
+  return gray;
 }
 
 /**
@@ -148,6 +185,26 @@ export function downsampleGray(src, srcSize, dst, dstSize) {
       }
       // keep a pixel empty unless the block is at least half covered
       dst[y * dstSize + x] = n * 2 >= factor * factor ? Math.round(sum / n) : 0;
+    }
+  }
+  return dst;
+}
+
+/**
+ * Quarter-turn of a square image, in array coordinates: dst(x, y) = src(y, size-1-x).
+ * Works for any channel count.
+ *
+ * The veil is wide but a figure standing in it reads better to the model upright,
+ * so the capture is turned before it is sent. Because the returned pixels are
+ * stored bottom-up while the capture is top-down, the same single turn undoes it:
+ * flipping vertically conjugates a quarter turn into its opposite.
+ */
+export function rotateQuarter(src, size, dst, channels = 1) {
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const from = ((size - 1 - x) * size + y) * channels;
+      const to = (y * size + x) * channels;
+      for (let c = 0; c < channels; c++) dst[to + c] = src[from + c];
     }
   }
   return dst;

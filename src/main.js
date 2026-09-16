@@ -203,7 +203,9 @@ async function start() {
     }
   };
 
-  await renderer.compileAsync(scene, camera);
+  // compileAsync polls with a timer, and a background tab throttles timers to
+  // once a minute, so the page could hang before its first frame
+  renderer.compile(scene, camera);
   ribbon.sync();
   post.render(0);
   $('loading').classList.add('loaded');

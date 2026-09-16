@@ -201,3 +201,24 @@ test('shape matching: a moved and tilted body keeps its shape and is not dragged
   const R = solver.rotation;
   assert.ok(Math.abs(Math.atan2(R[2], R[0]) - ang) < 0.05, `rotation ${Math.atan2(R[2], R[0])}`);
 });
+
+test('reliefScale frees the cloth from the sculpture without forgetting it', () => {
+  const shape = small();
+  const solver = new ClothSolver(shape, { gravity: 0 });
+  const { depth, mask } = makeRelief(shape);
+  solver.setRelief(depth, mask, 0.3);
+  const shaped = Float32Array.from(solver.rest);
+  solver.params.reliefScale = 0;
+  solver.refreshReveal();
+  // the rest shape is the bare strip again
+  for (let i = 0; i < solver.count * 3; i++) assert.ok(Math.abs(solver.rest[i] - shape.base[i]) < 1e-6);
+  // and the relief is still there to drive the image
+  assert.ok(solver.relief && Math.max(...solver.relief) > 0.9);
+  // half scale sits between the two
+  solver.params.reliefScale = 0.5;
+  solver.refreshReveal();
+  const mid = Math.floor(shape.rows / 2) * (shape.columns + 1) + Math.floor(shape.columns / 2);
+  const full = Math.hypot(shaped[mid * 3] - shape.base[mid * 3], shaped[mid * 3 + 1] - shape.base[mid * 3 + 1], shaped[mid * 3 + 2] - shape.base[mid * 3 + 2]);
+  const half = Math.hypot(solver.rest[mid * 3] - shape.base[mid * 3], solver.rest[mid * 3 + 1] - shape.base[mid * 3 + 1], solver.rest[mid * 3 + 2] - shape.base[mid * 3 + 2]);
+  assert.ok(Math.abs(half - full / 2) < 1e-4, `${half} vs ${full / 2}`);
+});

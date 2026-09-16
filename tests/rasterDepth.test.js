@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { createDepthRaster, rasterDepth, downsampleGray, packFrame, EMPTY_DEPTH } from '../src/projection/rasterDepth.js';
+import { createDepthRaster, rasterDepth, buildStructure, downsampleGray, rotateQuarter, packFrame, EMPTY_DEPTH } from '../src/projection/rasterDepth.js';
 
 function viewProjection(position = [0, 0, 0], target = [0, 0, -1]) {
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 50);
@@ -103,4 +103,52 @@ test('downsampleGray averages covered samples and drops thin coverage', () => {
   downsampleGray(half, 4, out, 2);
   assert.equal(out[0], 60);
   assert.throws(() => downsampleGray(src, 4, dst, 3));
+});
+
+test('buildStructure stretches depth over the veil range and can follow a per-vertex field', () => {
+  const size = 48, r = createDepthRaster(size);
+  // a quad tilted in depth: left edge near, right edge far
+  const positions = Float32Array.from([-1, -1, -4.5, 1, -1, -5.5, 1, 1, -5.5, -1, 1, -4.5]);
+  const indices = Uint32Array.from([0, 1, 2, 0, 2, 3]);
+  const values = Float32Array.from([0, 1, 1, 0]);         // field rises to the right
+  rasterDepth(r, positions, indices, viewProjection(), 1, 40, values);
+  const mid = y => Math.round(size / 2) * size + y;
+  // without the field: the near side is brightest, and the range is stretched
+  buildStructure(r, { emphasis: 0 });
+  const left = r.gray[mid(14)], right = r.gray[mid(34)];
+  assert.ok(left > right + 100, `depth contrast ${left} vs ${right}`);
+  const covered = [...r.gray].filter(v => v > 0);
+  assert.equal(Math.max(...covered), 255, 'nearest covered pixel reaches full white');
+  assert.equal(Math.min(...covered), 30, 'farthest covered pixel sits on the floor value');
+  assert.equal(r.gray[0], 0, 'background stays empty');
+  // with the field: the bright side follows the field instead
+  rasterDepth(r, positions, indices, viewProjection(), 1, 40, values);
+  buildStructure(r, { emphasis: 1 });
+  assert.ok(r.gray[mid(34)] > r.gray[mid(14)] + 100, 'field drives the shading');
+});
+
+test('rotateQuarter turns the capture, and one more turn puts the answer back', () => {
+  const size = 4, n = size * size;
+  const src = Uint8Array.from({ length: n }, (_, i) => i + 1);
+  const turn = (buf, channels = 1) => rotateQuarter(buf, size, new (buf.constructor)(buf.length), channels);
+  const flip = buf => {
+    const out = new Uint8Array(buf.length);
+    for (let y = 0; y < size; y++) out.set(buf.subarray((size - 1 - y) * size, (size - y) * size), y * size);
+    return out;
+  };
+  // four quarter turns are the identity
+  assert.deepEqual(Array.from(turn(turn(turn(turn(src))))), Array.from(src));
+  // flip . turn . flip === turn^3, which is why one more turn in the answer's
+  // (bottom-up) storage undoes the turn applied to the capture
+  const three = turn(turn(turn(src)));
+  assert.deepEqual(Array.from(flip(turn(flip(src)))), Array.from(three));
+  // the projector's actual round trip: send turn(capture), receive it bottom-up, turn once
+  const sent = turn(src);
+  const answerBottomUp = flip(sent);              // the model returns GL-ordered rows
+  const backOnTheVeil = flip(turn(answerBottomUp));
+  assert.deepEqual(Array.from(backOnTheVeil), Array.from(src), 'the answer lands back on the veil');
+  // a pixel keeps its four channels together
+  const rgba = Uint8Array.from({ length: n * 4 }, (_, i) => i);
+  const turned = turn(rgba, 4);
+  assert.deepEqual(Array.from(turned.subarray(0, 4)), Array.from(rgba.subarray((size - 1) * size * 4, (size - 1) * size * 4 + 4)));
 });

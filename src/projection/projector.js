@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createDepthRaster, rasterDepth, downsampleGray, packFrame } from './rasterDepth.js';
+import { createDepthRaster, rasterDepth, buildStructure, downsampleGray, rotateQuarter, packFrame } from './rasterDepth.js';
 
 /**
  * Live projection: the veil's depth, seen from a projector at the viewer, goes
@@ -22,9 +22,11 @@ export const PROJECTOR_DEFAULTS = {
   mode: 'woven',
   show: 'generated',
   running: true,
-  prompt: 'a prehistoric Venus figurine carved from weathered limestone, draped in flowing translucent fabric, soft museum spotlight, sculptural folds, black background',
+  prompt: 'a prehistoric Venus figurine, full body, heavy breasts, round belly, braided head, carved from weathered limestone, museum spotlight, black background',
   seed: 42,
-  guidance: 0.85,
+  guidance: 1.1,
+  emphasis: 0.8,      // how much the sculpture relief (rather than the cloth) guides the model
+  upright: true,      // turn the capture so the figure stands up for the model
   wander: true,
   drift: 0.35,
   wanderSpeed: 0.12,       // materials per second
@@ -38,6 +40,7 @@ export const PROJECTOR_DEFAULTS = {
   follow: true,
   mirror: true,
   liveInterval: 1,     // re-rasterise live occlusion every n frames (raised by the frame budget)
+  physicsRelief: 0.25, // while projecting, how much of the sculpture still shapes the cloth
 };
 
 const MODE_LABELS = { woven: 'woven into fabric', projector: 'physical projector', locked: 'frame-locked pairs' };
@@ -101,9 +104,12 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
   const liveDepth = new THREE.DataTexture(liveRaster.metric, params.depthSize, params.depthSize, THREE.RedFormat, THREE.FloatType);
   liveDepth.minFilter = liveDepth.magFilter = THREE.NearestFilter;
   liveDepth.generateMipmaps = false;
+  const figure = new Float32Array(solver.count);   // relief × mask, per particle
   const pending = {
     raster: createDepthRaster(params.depthSize),
     model: new Uint8Array(params.size * params.size),
+    turned: new Uint8Array(params.size * params.size),
+    rgba: new Uint8Array(params.size * params.size * 4),
     pos: new Float32Array(solver.pos.length),
     matrix: new THREE.Matrix4(),
   };
@@ -218,7 +224,14 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       const tCapture = performance.now();
       pending.matrix.copy(currentMatrix());
       pending.pos.set(solver.pos);
-      rasterDepth(pending.raster, pending.pos, indices, pending.matrix.elements, near, far);
+      const relief = solver.relief;
+      const emphasis = relief ? params.emphasis : 0;
+      if (emphasis > 0) {
+        const reveal = solver.params.reveal;
+        for (let i = 0; i < solver.count; i++) figure[i] = relief[i] * solver.mask[i] * reveal;
+      }
+      rasterDepth(pending.raster, pending.pos, indices, pending.matrix.elements, near, far, emphasis > 0 ? figure : null);
+      buildStructure(pending.raster, { emphasis });
       downsampleGray(pending.raster.gray, params.depthSize, pending.model, params.size);
       if (state.requested % 2 === 0) drawDepthPreview(pending.model);
       const now = performance.now();
@@ -228,7 +241,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       const body = packFrame({
         frame_id: frameId, size: params.size, prompt: params.prompt, seed: params.seed,
         guidance: params.guidance, drift: params.wander ? params.drift : 0, drift_phase: state.driftPhase, format: 'rgba',
-      }, pending.model);
+      }, params.upright ? rotateQuarter(pending.model, params.size, pending.turned) : pending.model);
       const tSend = performance.now();
       const response = await fetch(`${state.endpoint}/generate`, {
         method: 'POST', body, headers: { 'Content-Type': 'application/octet-stream' },
@@ -239,9 +252,11 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       if (response.status === 503) { state.status = 'loading'; return; }
       if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
       const tHeaders = performance.now();
-      const rgba = new Uint8Array(await response.arrayBuffer());
+      const received = new Uint8Array(await response.arrayBuffer());
       const tBody = performance.now();
-      if (rgba.length !== params.size * params.size * 4) throw new Error(`unexpected frame size ${rgba.length}`);
+      if (received.length !== params.size * params.size * 4) throw new Error(`unexpected frame size ${received.length}`);
+      // turn the answer back onto the veil (one more quarter turn, see rotateQuarter)
+      const rgba = params.upright ? rotateQuarter(received, params.size, pending.rgba, 4) : received;
       const tDecoded = performance.now();
       if (epoch !== generation) return;
 
@@ -310,6 +325,13 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     material.needsUpdate = true;
   }
 
+  function applyPhysicsRelief() {
+    // While the diffusion carries the figure, the cloth can fly free: the relief
+    // still guides the model (it is rasterised as a field), but holds the sheet less.
+    solver.params.reliefScale = params.enabled ? params.physicsRelief : 1;
+    solver.refreshReveal();
+  }
+
   function setEnabled(on) {
     params.enabled = on;
     if (on) {
@@ -322,6 +344,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       clearSlots();
     }
     applySurface();
+    applyPhysicsRelief();
     mirror.group.visible = on && params.mirror;
     if (elements.panel) elements.panel.hidden = !on;
     bindSlots();
@@ -392,7 +415,10 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     folder.add(params, 'wander').name('material wandering');
     folder.add(params, 'drift', 0, 1, 0.01).name('wander amount');
     folder.add(params, 'wanderSpeed', 0, 1, 0.01).name('wander speed');
-    folder.add(params, 'guidance', 0.3, 1.8, 0.01).name('fold guidance');
+    folder.add(params, 'guidance', 0.3, 2, 0.01).name('edge strength');
+    folder.add(params, 'emphasis', 0, 1, 0.01).name('sculpture emphasis');
+    folder.add(params, 'upright').name('figure upright for model');
+    folder.add(params, 'physicsRelief', 0, 1, 0.01).name('sculpture in physics').onChange(applyPhysicsRelief);
     folder.add(params, 'seed', 0, 9999, 1).name('seed');
     folder.add(params, 'power', 0, 4, 0.01).name('brightness').onChange(bindSlots);
     folder.add(params, 'catch', 0, 1, 0.01).name('fabric catch').onChange(bindSlots);
@@ -413,6 +439,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     frame: () => requestFrame(),
     get locksSimulation() { return locksSimulation(); },
     dispose() {
+      solver.params.reliefScale = 1;
       clearSlots();
       for (const slot of slots) { slot.image.dispose(); slot.depth.dispose(); }
       liveDepth.dispose(); gridTexture.dispose(); mirror.dispose();

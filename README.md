@@ -74,6 +74,12 @@ The published page can use the same local service (Chrome may ask to allow local
   exactly the pose its image was made from.
 - **Final image:** *diffusion only* (default) shows the generated result alone, floating in the
   studio; *fabric + light* keeps the lit veil and adds the projection on top.
+- **What the model sees:** the capture is stretched over the veil's own near/far range and
+  mixed with the sculpture's relief (**sculpture emphasis**), so the body — not just the sheet
+  outline — guides generation, and it is turned upright first (**figure upright for model**),
+  because the model reads a standing figure far better than a reclining one.
+- **While projecting, the cloth flies free:** the relief still drives the image but holds the
+  sheet only slightly (**sculpture in physics**, 0.25 by default; 0 removes it entirely).
 - **Occlusion** is captured at 512 px and filtered over 3×3 taps, so fold shadows have soft
   edges instead of stepping along the projector's pixel grid; the model is fed a
   box-averaged 256 px copy of the same capture.
