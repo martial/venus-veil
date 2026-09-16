@@ -35,7 +35,7 @@ test('there are five looks, each with a label and a note', () => {
 
 test('applying a look writes through to every live object', () => {
   const { context, calls } = stubs();
-  const preset = applyPreset('storm', context);
+  const preset = applyPreset('obsidian', context);
   assert.equal(context.wind.params.speed, preset.wind.speed);
   assert.equal(context.solver.params.bendCompliance, preset.cloth.bendCompliance);
   assert.equal(context.material.opacity, preset.material.opacity);
@@ -50,18 +50,33 @@ test('applying a look writes through to every live object', () => {
   assert.equal(calls.rebuild, 1, 'texture parameters changed, so the sculpture is rebuilt');
 });
 
-test('a look turns live projection on and off, and only rebuilds textures when they change', () => {
+test('every look drives the projector, with its own prompt and material', () => {
+  const prompts = new Set();
+  for (const name of PRESET_NAMES) {
+    const { context, calls } = stubs();
+    const preset = applyPreset(name, context);
+    assert.equal(preset.projector.enabled, true, `${name} should project`);
+    assert.deepEqual(calls.projector.at(-1), ['setEnabled', true]);
+    assert.ok(['diffusion', 'fabric'].includes(context.projector.params.surface));
+    assert.ok(preset.projector.prompt.length > 20);
+    prompts.add(preset.projector.prompt);
+  }
+  assert.ok(prompts.size >= 4, 'the looks should not all ask for the same image');
+});
+
+test('switching between looks refreshes the projector instead of restarting it', () => {
   const { context, calls } = stubs();
-  applyPreset('apparition', context);
+  applyPreset('limestone', context);
   assert.deepEqual(calls.projector.at(-1), ['setEnabled', true]);
-  assert.equal(context.projector.params.surface, 'diffusion');
-  assert.equal(context.projector.params.physicsRelief, 0.15);
   const rebuilds = calls.rebuild;
-  applyPreset('apparition', context);          // same values again
-  assert.equal(calls.rebuild, rebuilds, 'no pointless texture rebuild');
-  assert.deepEqual(calls.projector.at(-1), ['refresh']);
-  applyPreset('veil', context);
-  assert.deepEqual(calls.projector.at(-1), ['setEnabled', false]);
+  applyPreset('obsidian', context);
+  assert.deepEqual(calls.projector.at(-1), ['refresh'], 'already on: no restart');
+  assert.equal(context.projector.params.power, PRESETS.obsidian.projector.power);
+  assert.ok(calls.rebuild > rebuilds, 'texture parameters changed with the look');
+  // turning projection off by hand still works
+  context.projector.setEnabled(false);
+  applyPreset('obsidian', context);
+  assert.deepEqual(calls.projector.at(-1), ['setEnabled', true]);
 });
 
 test('every look leaves the cloth stable', () => {

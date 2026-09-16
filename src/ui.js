@@ -10,7 +10,7 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
   const gui = new GUI({ title: 'venus veil', width: 290 });
   gui.domElement.classList.add('veil-gui');
   const context = { wind, solver, material, studio, post, sculpture, projector };
-  const state = { look: 'veil', expert: false };
+  const state = { look: 'limestone', expert: false };
 
   const refresh = () => gui.controllersRecursive().forEach(c => c.updateDisplay());
 
@@ -30,6 +30,7 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
   gui.add(wind.params, 'turbulence', 0, 3, 0.01).name('turbulence');
   gui.add(material, 'opacity', 0, 1, 0.01).name('veil opacity');
   gui.add(studio.params, 'keyIntensity', 0, 200, 1).name('light').onChange(studio.apply);
+  if (projector) gui.add(projector.params, 'power', 0, 3, 0.01).name('projected light');
   if (sculpture) {
     gui.add(sculpture.params, 'amplitude', 0, 0.6, 0.005).name('sculpture relief')
       .onChange(v => solver.setAmplitude(v));

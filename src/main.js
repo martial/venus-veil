@@ -212,13 +212,12 @@ async function start() {
   $('loading').classList.add('loaded');
   renderer.setAnimationLoop(animate);
   sculpture.loadSample();
+  // the looks are projector looks: applying one switches the projection on, and
+  // the veil keeps its lit fabric look until the first generated frame arrives
   const query = new URLSearchParams(location.search);
   const look = query.get('look');
-  if (look && PRESET_NAMES.includes(look)) ui.applyLook(look);
-  if (query.has('projector') && !projector.params.enabled) {
-    projector.setEnabled(true);
-    ui.refresh();
-  }
+  ui.applyLook(PRESET_NAMES.includes(look) ? look : ui.state.look);
+  if (query.has('noprojector')) { projector.setEnabled(false); ui.refresh(); }
 
   window.__veil = {
     solver, wind, material, studio, post, camera, controls, sculpture, renderer, ribbon, stepper, projector, quality, applyQuality, ui,

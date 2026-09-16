@@ -239,9 +239,12 @@ export function createVeilMaterial(weave, overrides = {}) {
         gl_FragColor.rgb += veilGlow * 0.5;
         #ifdef VEIL_PROJECTION
           #ifdef VEIL_PROJECTION_ONLY
-            // the final image is the diffusion result alone, floating in the studio.
-            // halved: the sheet is double sided, so front and back both emit here
-            gl_FragColor = vec4( veilProjected * 0.6, 0.0 );
+            // the final image is the diffusion result alone, floating in the studio
+            // (halved: the sheet is double sided, so front and back both emit).
+            // Until a frame arrives, the lit veil stays, so an offline service
+            // never leaves an invisible sheet.
+            float veilHasImage = max( uProjHas0, uProjHas1 );
+            gl_FragColor = mix( gl_FragColor, vec4( veilProjected * 0.6, 0.0 ), veilHasImage );
           #else
             // projected light scatters in the fabric: sheer areas catch less, folds catch it all
             gl_FragColor.rgb += veilProjected * mix( uProjCatch, 1.0, diffuseColor.a );

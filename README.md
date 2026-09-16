@@ -41,18 +41,23 @@ current resolution when it is below 100%. Turn **hold frame rate** off to pin th
 
 ## Looks
 
-Five presets set the whole studio at once: wind, cloth, surface, light, post and sculpture.
-`?look=storm` opens straight into one.
+Five projector looks. Each one sets the whole studio at once — wind, cloth, surface, light,
+post, sculpture — and drives the local diffusion service with its own prompt, so the veil
+takes on a different material. `?look=bronze` opens straight into one; `?noprojector` starts
+with projection off.
 
 | Look | What it is |
 |---|---|
-| Veil | sheer organza turning in quiet air (default) |
-| Breath | barely moving air, long slow folds |
-| Storm | hard wind, crisp snapping folds |
-| Relic | the body holds its form under the cloth |
-| Apparition | the diffusion result alone, cloth set free (needs the projector service) |
+| Limestone | weathered stone, the figure the sculptor carved (default) |
+| Bronze | cast metal, oxidised green and copper |
+| Ivory | projection over the lit cloth: pearl and carved ivory |
+| Obsidian | smoked glass in a darker room |
+| Wandering | the material drifts: stone, ivory, pearl, glass |
 
-The panel shows a look, five essentials and the actions. **Expert controls** reveals the full
+Until the first generated frame arrives — while the model loads, or with the service
+stopped — the veil keeps its lit fabric look, so nothing ever goes invisible.
+
+The panel shows a look, six essentials and the actions. **Expert controls** reveals the full
 set: Wind, Cloth, Surface, Light, Sculpture, Projection and Performance.
 
 ## Controls
