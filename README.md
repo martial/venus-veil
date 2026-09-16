@@ -39,11 +39,15 @@ frame, so the file is smooth however slowly it was made. The panel itself is nev
 picture: only the render canvas is captured.
 
 - **Format:** MP4 (H.264) by default, straight into any editor; WebM (VP9) if you prefer it.
+  Frames are encoded through WebCodecs with an exact timestamp each, so a frame that took two
+  seconds to make is still 1/60 s in the file. **Keep the tab in front while recording:** Chrome
+  suspends video encoding in a hidden tab, so the recording pauses there and resumes when you
+  come back.
 - **Resolution:** the viewport, or a fixed 1280 × 720, 1920 × 1080 or 2560 × 1440.
 - **Quality:** standard, high or master. At 1920 × 1080 / 24 fps that is about 5, 10 and
   20 Mbit/s.
-- **Camera orbit:** degrees the camera travels around the veil over the clip, for movement
-  that does not depend on your hand.
+- **Camera:** the view holds still for the first fifth of the clip (**still at start**), then
+  eases into a slow orbit of **camera orbit** degrees, so a clip has movement of its own.
 - **Generated resolution:** 256, 384 or 512 px for the diffusion.
 - `Escape` stops early and keeps what was recorded. Recordings hold priority on the projector
   service, so another open tab cannot steal their frames.
@@ -60,9 +64,10 @@ Generated resolutions, measured on an M3 Pro (one frame, including the round tri
 compiles all three; add more with
 `.venv-projector/bin/python server/prepare_models.py --sizes 384 512`.
 
-For a high-quality clip: hide the panel with `H`, place the camera, then set 2560 × 1440,
-24 fps, quality master, generated 512 and an orbit of 10 to 20 degrees. A 10 second clip takes
-about 3 minutes, most of it waiting for the model. Older WebM clips convert with
+The defaults are already the high-quality ones: 3840 × 2160, 60 fps, master quality, 32 seconds,
+generated at 512 with a new image 8 times a second, and a 40° orbit after a still opening.
+That clip is 1920 frames and takes roughly 5 minutes, most of it waiting for the model. Hide the
+panel with `H` first if you want to watch it being made; the panel is never in the picture. Older WebM clips convert with
 `npm run to-mp4 -- <clip.webm>` (requires ffmpeg).
 
 ## Frame rate

@@ -51,6 +51,9 @@
       #pp-strip { display: flex; gap: 4px; margin-top: 8px; height: 36px; }
       #pp-strip canvas { width: 36px; height: 36px; border: 1px solid var(--line); display: block; }
       #pp-status { margin-top: 8px; font-size: 10px; color: #b9ad97; line-height: 1.4; }
+      #clip-link { left: 50%; bottom: 140px; transform: translateX(-50%); pointer-events: auto; background: rgba(20, 18, 16, 0.94); border: 1px solid rgba(232, 220, 200, 0.35); color: #eae2d4; padding: 12px 18px; font-size: 12px; text-decoration: none; letter-spacing: 0.3px; }
+      #clip-link:hover { border-color: #d8c8a6; }
+      #clip-link[hidden] { display: none; }
     </style>
   </head>
   <body>
@@ -71,6 +74,7 @@
       <span><span id="state">live</span><i>·</i><span id="fps">— fps</span></span>
     </div>
     <div id="drop-overlay">release to weave the sculpture into the veil</div>
+    <a id="clip-link" class="chrome" hidden download></a>
     <div id="toast" class="chrome"></div>
     <div id="loading"><span>venus veil</span></div>
     <div id="error" hidden><h1>The studio could not start.</h1><p></p></div>
