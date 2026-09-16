@@ -64,6 +64,12 @@ test('every look drives the projector, with its own prompt and material', () => 
   assert.ok(prompts.size >= 4, 'the looks should not all ask for the same image');
 });
 
+test('every look reads the wind-shaped cloth, not a painted figure', () => {
+  for (const name of PRESET_NAMES) {
+    assert.equal(PRESETS[name].projector.emphasis, 0, `${name} should capture the cloth alone`);
+  }
+});
+
 test('switching between looks refreshes the projector instead of restarting it', () => {
   const { context, calls } = stubs();
   applyPreset('limestone', context);

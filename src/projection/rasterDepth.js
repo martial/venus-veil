@@ -143,9 +143,10 @@ export function rasterDepth(raster, positions, indices, m, near, far, values = n
 
 /**
  * Build the model's structure image from a capture: depth stretched over the
- * veil's own near/far range (so folds and relief read, instead of a few grey
- * levels inside the whole scene range), optionally mixed with the sculpture
- * relief so the body, not just the sheet outline, guides generation.
+ * veil's own near/far range, so the folds the wind makes read as shape instead
+ * of a few grey levels inside the whole scene's range. By default that is all
+ * the model sees — the cloth, not a picture painted on it. `emphasis` mixes the
+ * sculpture's relief back in for a more literal figure.
  */
 export function buildStructure(raster, { emphasis = 0, floor = 30 } = {}) {
   const { size, gray, value, metric } = raster;

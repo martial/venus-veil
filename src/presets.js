@@ -18,7 +18,7 @@ export const PRESETS = {
     projector: {
       enabled: true, surface: 'diffusion', mode: 'woven', upright: true,
       prompt: 'a prehistoric Venus figurine, full body, heavy breasts, round belly, braided head, carved from weathered limestone, museum spotlight, black background',
-      emphasis: 0.8, guidance: 1.1, power: 0.85, physicsRelief: 0.2, wander: false, blendMs: 90, mirror: true,
+      emphasis: 0, guidance: 1.1, power: 0.85, physicsRelief: 0.2, wander: false, blendMs: 90, mirror: true,
     },
   },
 
@@ -35,7 +35,7 @@ export const PRESETS = {
     projector: {
       enabled: true, surface: 'diffusion', mode: 'woven', upright: true,
       prompt: 'a cast bronze sculpture of a prehistoric Venus, oxidised turquoise and copper patina, engraved ornamental relief, museum spotlight, black background',
-      emphasis: 0.8, guidance: 1.2, power: 1.0, physicsRelief: 0.25, wander: false, blendMs: 110, mirror: true,
+      emphasis: 0, guidance: 1.2, power: 1.0, physicsRelief: 0.25, wander: false, blendMs: 110, mirror: true,
     },
   },
 
@@ -52,7 +52,7 @@ export const PRESETS = {
     projector: {
       enabled: true, surface: 'fabric', mode: 'woven', upright: true,
       prompt: 'a prehistoric Venus figurine carved in polished mammoth ivory and mother of pearl, luminous cream surface, fine carved relief, museum spotlight, black background',
-      emphasis: 0.75, guidance: 1.0, power: 1.15, physicsRelief: 0.35, wander: false, blendMs: 90, mirror: true,
+      emphasis: 0, guidance: 1.0, power: 1.15, physicsRelief: 0.35, wander: false, blendMs: 90, mirror: true,
     },
   },
 
@@ -69,7 +69,7 @@ export const PRESETS = {
     projector: {
       enabled: true, surface: 'diffusion', mode: 'woven', upright: true,
       prompt: 'a prehistoric Venus figurine carved from translucent smoky black glass, silver veins, inner light, dark museum, black background',
-      emphasis: 0.85, guidance: 1.3, power: 1.15, physicsRelief: 0.1, wander: false, blendMs: 80, mirror: true,
+      emphasis: 0, guidance: 1.3, power: 1.15, physicsRelief: 0.1, wander: false, blendMs: 80, mirror: true,
     },
   },
 
@@ -86,7 +86,7 @@ export const PRESETS = {
     projector: {
       enabled: true, surface: 'diffusion', mode: 'woven', upright: true,
       prompt: 'a prehistoric Venus figurine, full body, heavy breasts, round belly, braided head, carved relief, museum spotlight, black background',
-      emphasis: 0.8, guidance: 1.15, power: 0.95, physicsRelief: 0.15, wander: true, drift: 0.65, wanderSpeed: 0.16, blendMs: 160, mirror: true,
+      emphasis: 0, guidance: 1.15, power: 0.95, physicsRelief: 0.15, wander: true, drift: 0.65, wanderSpeed: 0.16, blendMs: 160, mirror: true,
     },
   },
 };

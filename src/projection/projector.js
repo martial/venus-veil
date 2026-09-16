@@ -25,7 +25,8 @@ export const PROJECTOR_DEFAULTS = {
   prompt: 'a prehistoric Venus figurine, full body, heavy breasts, round belly, braided head, carved from weathered limestone, museum spotlight, black background',
   seed: 42,
   guidance: 1.1,
-  emphasis: 0.8,      // how much the sculpture relief (rather than the cloth) guides the model
+  emphasis: 0,        // 0 = the capture is the wind-shaped cloth alone; raise it to paint
+                      //     the sculpture's relief into what the model sees
   upright: true,      // turn the capture so the figure stands up for the model
   wander: true,
   drift: 0.35,
@@ -443,7 +444,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     folder.add(params, 'drift', 0, 1, 0.01).name('wander amount');
     folder.add(params, 'wanderSpeed', 0, 1, 0.01).name('wander speed');
     folder.add(params, 'guidance', 0.3, 2, 0.01).name('edge strength');
-    folder.add(params, 'emphasis', 0, 1, 0.01).name('sculpture emphasis');
+    folder.add(params, 'emphasis', 0, 1, 0.01).name('sculpture in depth map');
     folder.add(params, 'upright').name('figure upright for model');
     folder.add(params, 'size', [256, 384, 512]).name('generated resolution').onChange(value => {
       const n = Number(value);
