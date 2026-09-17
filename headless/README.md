@@ -50,6 +50,30 @@ card runs SD 1.5 at roughly 20 steps per second at 512, so `best` lands near a
 second a frame instead of the 30 seconds this laptop needs — a 12 second clip at
 12 images per second is about 2.5 minutes of work.
 
+## Using it from your own browser, with the GPU on the pod
+
+The interactive page can run in your laptop's browser while the generation happens on the pod.
+Serve the built app and the diffusion service through one port, so there is no CORS and no mixed
+content to fight:
+
+```
+python3 server/server.py &                                   # stays on the loopback
+node headless/serve.mjs --port 5191 --token "$(openssl rand -hex 12)"
+```
+
+Expose port 5191 in the pod's settings, open the proxy URL RunPod gives you
+(`https://<pod-id>-5191.proxy.runpod.net/?token=...`), and the page will talk to the GPU through
+the same origin. It is the ordinary app: drop a photo, pick a look, watch it move, record a clip.
+
+Two things to keep in mind. A proxy URL is public to anyone who has it, so pass `--token` and keep
+it out of screenshots; without a token anyone with the link can drive your GPU. And every generated
+frame crosses the internet, which adds roughly 50 to 150 ms per frame — fine for recording, and
+still interactive at a few images a second.
+
+If you would rather keep using the published page at martial.github.io, point **Projection ›
+service** at the pod URL and start the service with
+`VENUS_ALLOWED_ORIGINS=https://martial.github.io` so it accepts that origin.
+
 ## How it drives the page
 
 `render.mjs` injects `headless/page-api.mjs` into the page and calls it frame by

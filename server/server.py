@@ -32,7 +32,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 PORT = int(os.environ.get('VENUS_PROJECTOR_PORT', '5193'))
 DEFAULT_PROMPT = ('a prehistoric Venus figurine carved from weathered limestone, draped in flowing translucent fabric, '
                   'soft museum spotlight, sculptural folds, black background')
-ALLOWED_ORIGINS = ['http://127.0.0.1:5190', 'http://localhost:5190', 'https://martial.github.io']
+# VENUS_ALLOWED_ORIGINS adds origins for a hosted page (a rented GPU box, say).
+# Serving the page through headless/serve.mjs avoids the question entirely: the
+# page and the service then share one origin.
+ALLOWED_ORIGINS = ['http://127.0.0.1:5190', 'http://localhost:5190', 'http://127.0.0.1:5191',
+                   'https://martial.github.io']
+ALLOWED_ORIGINS += [o.strip() for o in os.environ.get('VENUS_ALLOWED_ORIGINS', '').split(',') if o.strip()]
 NEGATIVE_PROMPT = ('blurry, low quality, jpeg artifacts, text, watermark, signature, frame, border, '
                    'flat, washed out, duplicated limbs, deformed hands, cartoon')
 
@@ -295,4 +300,6 @@ def create_app(load=True):
 
 if __name__ == '__main__':
     import uvicorn
-    uvicorn.run(create_app(), host='127.0.0.1', port=PORT, log_level='warning', access_log=False)
+    # bind to the loopback: expose the page server instead, which proxies /projector
+    uvicorn.run(create_app(), host=os.environ.get('VENUS_HOST', '127.0.0.1'), port=PORT,
+                log_level='warning', access_log=False)
