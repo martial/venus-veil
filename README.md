@@ -106,6 +106,13 @@ distilled step, and they use a negative prompt. They are for recordings; a frame
   `npm run projector:setup`, and `.venv-projector/bin/python server/bench_engines.py` measures
   seconds per frame on your machine.
 
+## Rendering from the command line
+
+There is a headless renderer for making clips without a display, on this Mac or on a rented GPU
+box: `node headless/render.mjs --seconds 8 --engine best --out clip.mp4`, or the container in
+`headless/Dockerfile`. It drives the same page in headless Chromium, writes a PNG per frame and
+encodes with ffmpeg. See [headless/README.md](headless/README.md).
+
 ## Frame rate
 
 The studio measures its own frame time and holds the rate above **Performance › minimum fps**

@@ -39,6 +39,14 @@ PRESETS = {
 }
 
 
+def pick_device():
+    if torch.cuda.is_available():
+        return 'cuda'
+    if torch.backends.mps.is_available():
+        return 'mps'
+    return 'cpu'
+
+
 def available():
     """True when the weights are on disk (no download at request time)."""
     if not CACHE.exists():
@@ -52,8 +60,8 @@ class TorchDepthGenerator:
     """Same shape as SketchGenerator: load_size(), generate() -> (rgb, stages)."""
 
     def __init__(self, preset='best', size=512, device=None):
-        self.device = device or ('mps' if torch.backends.mps.is_available() else 'cpu')
-        self.dtype = torch.float16 if self.device == 'mps' else torch.float32
+        self.device = device or pick_device()
+        self.dtype = torch.float16 if self.device in ('cuda', 'mps') else torch.float32
         self.preset = None
         self.size = size
         self.prompt = None
@@ -71,9 +79,11 @@ class TorchDepthGenerator:
             requires_safety_checker=False, **load)
         self.pipe.to(self.device)
         self.pipe.set_progress_bar_config(disable=True)
-        # Attention slicing produces NaN on this torch 2.5.1 / MPS / fp16 stack —
-        # measured, every pixel comes back black — so only the VAE is sliced.
-        self.pipe.enable_vae_slicing()
+        # Attention slicing produces NaN on the torch 2.5.1 / MPS / fp16 stack —
+        # measured, every pixel comes back black — so only the VAE is sliced there.
+        # On CUDA there is memory to spare and slicing only costs speed.
+        if self.device != 'cuda':
+            self.pipe.enable_vae_slicing()
         self.lcm_loaded = False
 
     def set_preset(self, preset):
@@ -101,8 +111,9 @@ class TorchDepthGenerator:
 
     @property
     def sizes(self):
-        # 768 needs 6 GB or so of activations on top of the weights: not on this machine
-        return [384, 512]
+        # 768 needs about 6 GB of activations on top of the weights: fine on a
+        # server card, not on a laptop sharing memory with a browser
+        return [384, 512, 768] if self.device == 'cuda' else [384, 512]
 
     def reset_carry(self):
         self.previous = None
@@ -169,6 +180,8 @@ class TorchDepthGenerator:
         # projector aperture: no light outside the captured silhouette
         output[depth == 0] = 0
         done = time.perf_counter()
+        if self.device == 'cuda':
+            torch.cuda.synchronize()
         stages = {
             'prepare_ms': round((prepared - started) * 1000, 1),
             'sample_ms': round((sampled - prepared) * 1000, 1),
@@ -187,3 +200,5 @@ class TorchDepthGenerator:
         gc.collect()
         if self.device == 'mps':
             torch.mps.empty_cache()
+        elif self.device == 'cuda':
+            torch.cuda.empty_cache()

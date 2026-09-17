@@ -1,0 +1,13 @@
+# Linux + NVIDIA. Install torch from the CUDA index first:
+#   pip install --index-url https://download.pytorch.org/whl/cu124 torch==2.5.1
+torch==2.5.1
+diffusers==0.32.2
+transformers==4.46.3
+peft>=0.14,<1
+numpy>=1.26,<2
+accelerate>=1,<2
+fastapi>=0.115,<1
+uvicorn>=0.34,<1
+pillow>=11,<13
+huggingface-hub>=0.26
+httpx>=0.27,<1

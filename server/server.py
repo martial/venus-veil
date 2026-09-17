@@ -94,8 +94,11 @@ def parse_frame(body, allowed_sizes=(128, 192, 256, 384, 512)):
 def load_model():
     global generator
     try:
-        from generator import SketchGenerator
         started = time.perf_counter()
+        try:
+            from generator import SketchGenerator
+        except Exception as error:  # noqa: BLE001 — Core ML is macOS only
+            return load_without_coreml(str(error))
         generator = SketchGenerator(256, compute_units=os.environ.get('VENUS_COMPUTE_UNITS', 'ALL'))
         state['sizes'] = generator.sizes or [256]
         generator.warmup(DEFAULT_PROMPT)
@@ -114,6 +117,8 @@ def load_model():
 
 def free_memory_gb():
     """Free + inactive pages, in GB. The quality engine needs real headroom."""
+    if sys.platform != 'darwin':
+        return None          # the guard is for a laptop sharing memory with a browser
     try:
         out = subprocess.run(['vm_stat'], capture_output=True, text=True, timeout=5).stdout
         pages = 0
@@ -125,9 +130,24 @@ def free_memory_gb():
         return None
 
 
+def load_without_coreml(reason):
+    """No Core ML (a Linux box, say): the multi-step engines carry the service."""
+    import quality as quality_module
+    if not quality_module.available():
+        state.update(status='error', error=f'no engine available: {reason}')
+        print(f'projector has no engine: {reason}', flush=True)
+        return
+    state.update(status='ready', engines=['fine', 'best'], engine='unloaded',
+                 model='Lykon/dreamshaper-8 + depth ControlNet', device=quality_module.pick_device(),
+                 sizes=[384, 512, 768], load_s=0)
+    print(f'projector ready · engines fine, best · {state["device"]} (no Core ML here)', flush=True)
+
+
 def use_engine(name, preset_reset=False):
     """Make `name` the resident engine, unloading the other. Called on a worker thread."""
     global generator, quality, last_quality_use
+    if name == 'fast' and 'fast' not in state['engines']:
+        name = state['engines'][0]      # no Core ML here: use the multi-step engine
     if name == 'fast':
         if quality is not None:
             quality.unload()
@@ -149,7 +169,8 @@ def use_engine(name, preset_reset=False):
             raise MemoryError(f'only {free:.1f} GB free: close a few windows before recording with {name}')
     import quality as quality_module
     if generator is not None:
-        # the two engines are mutually exclusive on this machine's memory
+        # on a laptop the two engines are mutually exclusive; a server card can
+        # hold the diffusion pipeline alone anyway
         generator.loaded.clear()
         generator = None
         gc.collect()
