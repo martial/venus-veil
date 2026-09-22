@@ -119,14 +119,19 @@ by one frame's worth of time, asks for a generated image when one is due, render
 and is screenshotted to disk. Nothing is timed by the wall clock, so a frame that
 takes a minute is still 1/60 s in the file.
 
-### Optional export models
+### Optional image models
 
-The live engine remains SDXS. Exports also offer DreamShaper at 8 or 18 DPM++
+The default live engine is SDXS. The main panel's **live model** selector and
+Export's **image engine** selector also offer DreamShaper at 8 or 18 DPM++
 steps, SDXL Hyper with Depth ControlNet and IP-Adapter, FLUX.2 Klein 4B image
 editing, and FLUX.1 Depth-dev. Uninstalled models are disabled in the picker.
 Klein interprets depth as an image reference (experimental), while FLUX.1 uses
 native depth conditioning plus text; FLUX.1 does not preserve photo identity via
-IP-Adapter. These models change the look and are intended for offline export.
+IP-Adapter. Slower models keep the cloth moving while generating one image at a
+time, without a queue of stale poses. On the RTX 5090, DreamShaper and SDXL deliver
+roughly 1–2 new images per second; SDXS remains the high-rate option. The image
+counter measures actual generation separately from scene frame rate. First use
+loads the optional model; SDXL takes about 25 seconds, then reuses it.
 
 On a CUDA pod already configured by `pod-setup.sh`:
 
