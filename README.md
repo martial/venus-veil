@@ -3,9 +3,15 @@
 Model tuning is available in **Live model settings** and **Export → Export model settings**.
 Each model has **Speed**, **Balanced**, and **Detail** presets, plus editable controls for
 the parameters it supports. Switching models remembers each model's custom values for the
-current session; live and export settings are separate. Resolution changes speed/detail;
+current session. Export defaults to **Same as live model + settings**, including custom
+resolution, seed, depth/photo tuning and FLUX morph settings. Choose a specific model in
+**Export → image engine** to use independent **Export model settings** instead. Resolution changes speed/detail;
 SDXS stays at one step and SDXL Hyper / FLUX.2 Klein stay at four steps. DreamShaper and
 FLUX.1 Depth also expose step count. Export restores the live settings when it finishes.
+The selected export model generates images even if live projection is switched off.
+The export panel and progress display name the resolved model; each generated frame's
+model identifier is checked before encoding. Changing models preserves the chosen
+**new image per second** value.
 
 FLUX model settings also include **latent morph**, **morph amount**, and **transition (s)**,
 with independent **Still / Gentle / Flow / Dream** presets. Flow is the default. A seeded,
@@ -86,8 +92,8 @@ panel with `H` first if you want to watch it being made; the panel is never in t
 
 ## Image engines
 
-Two ways to make the projected image, chosen in **Export › image engine**. Live projection always
-uses the fast one.
+Choose the preview model with **live model**. **Export › image engine** follows it by default,
+or can select an independent model and its settings.
 
 | Engine | What it is | Steps | Per frame at 512 px |
 |---|---|---|---|
@@ -109,9 +115,9 @@ distilled step, and they use a negative prompt. They are for recordings; a frame
 - **Memory:** only one engine is resident. Asking for a slow engine unloads the fast one and takes
   20–30 s; it is released again after three idle minutes. Below about 1.2 GB free the service
   refuses with a message rather than dragging the machine into swap.
-- **Timing:** a recording shows an estimate and asks for a second press when it will take more than
-  two minutes. Choosing a slow engine drops **new image per second** to 6 (fine) or 2 (best), which
-  with the crossfade still gives 60 fps motion. A 4 s clip at 60 fps on `best` with 2 images per
+- **Timing:** a recording shows an estimate. **New image per second** stays at the chosen value
+  when switching models. Lowering it reduces render time while the cloth still moves at the
+  video's frame rate. A 4 s clip at 60 fps on `best` with 2 images per
   second is 8 generated images, about 5 minutes.
 - **This machine, honestly:** the times above are measured with nothing else running. With Chrome
   open and the system in swap, a `best` frame has taken up to 14 minutes here. Quit what you can

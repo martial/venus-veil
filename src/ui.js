@@ -1,5 +1,6 @@
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
-import { IMAGE_ENGINES, modelNote } from './projection/models.js';
+import { IMAGE_ENGINES, modelLabel, modelNote } from './projection/models.js';
+import { resolveExportSettings } from './projection/exportSettings.js';
 import { applyModelPreset, applyMorphPreset, createModelSettingsBank, modelControlSpecs, MODEL_SETTINGS_NOTES, selectedModelPreset, selectedMorphPreset } from './projection/modelSettings.js';
 import { isFluxModel } from './projection/morph.js';
 import { LIVE_PRESETS, PRESETS, applyPreset, resolveLive } from './presets.js';
@@ -27,11 +28,12 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
     const update = () => {
       const unavailable = new Map();
       const options = controller.domElement.querySelectorAll('option');
-      Object.entries(IMAGE_ENGINES).forEach(([label, engine], index) => {
+      Object.entries(IMAGE_ENGINES).forEach(([label, engine]) => {
+        const option = [...options].find(option => option.textContent === label);
         const disabled = !projector.state.engines.includes(engine);
         const reason = disabled ? modelNote(engine, projector.state) : '';
-        options[index].disabled = disabled;
-        options[index].title = reason;
+        option.disabled = disabled;
+        option.title = reason;
         if (disabled) {
           if (!unavailable.has(reason)) unavailable.set(reason, []);
           unavailable.get(reason).push(label.split(' · ')[0]);
@@ -234,26 +236,31 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
   let recordController;
   if (exportSettings) {
     const fExport = gui.addFolder('Export');
-    const exportModel = { engine: exportSettings.engine };
+    const exportModel = { engine: exportSettings.useLiveModel === false ? exportSettings.engine : 'live' };
     const selectExportModel = createModelSettingsBank(exportSettings);
     const engineNote = document.createElement('div');
     engineNote.className = 'look-note';
     engineNote.setAttribute('role', 'status');
     const updateModels = () => {
-      engineNote.textContent = modelNote(exportSettings.engine, projector.state);
+      const settings = resolveExportSettings(exportSettings, projector.params);
+      engineNote.textContent = `Export: ${modelLabel(settings.engine)} · ${settings.modelSize} px${settings.useLiveModel !== false ? ' · current live settings' : ' · export settings'}. ${modelNote(settings.engine, projector.state)}`;
     };
-    const engineControl = fExport.add(exportModel, 'engine', IMAGE_ENGINES)
+    const engineControl = fExport.add(exportModel, 'engine', { 'Same as live model + settings': 'live', ...IMAGE_ENGINES })
       .name('image engine').onChange(engine => {
-        selectExportModel(engine);
-        // a slow engine wants fewer images: every frame would take hours
-        exportSettings.diffusionFps = engine === 'fast' ? exportSettings.fps : engine === 'fine' ? 6 : engine === 'best' ? 2 : 1;
-        if (engine !== 'fast' && exportSettings.generated > 512) exportSettings.generated = 512;
+        exportSettings.useLiveModel = engine === 'live';
+        if (!exportSettings.useLiveModel) selectExportModel(engine);
         refresh();
-        updateModels();
       });
     engineControl.domElement.after(engineNote);
     if (projector) { explainUnavailableModels(engineControl); modelViews.push(updateModels); updateModels(); }
-    modelControls(fExport, 'Export model settings', exportSettings, () => {});
+    const exportControls = modelControls(fExport, 'Export model settings', exportSettings, () => {});
+    const updateExport = () => {
+      exportModel.engine = exportSettings.useLiveModel === false ? exportSettings.engine : 'live';
+      exportSettings.useLiveModel === false ? exportControls.show() : exportControls.hide();
+      updateModels();
+    };
+    settingsViews.push(updateExport);
+    updateExport();
     fExport.add(exportSettings, 'format', { 'MP4 (H.264)': 'mp4', 'WebM (VP9)': 'webm' }).name('format');
     fExport.add(exportSettings, 'resolution', Object.keys(RESOLUTIONS)).name('resolution');
     fExport.add(exportSettings, 'quality', Object.keys(QUALITIES)).name('quality');

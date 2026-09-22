@@ -16,6 +16,8 @@ import { createSculpturePipeline } from './pipeline/sculpture.js';
 import { createProjector } from './projection/projector.js';
 import { startActivity } from './activity.js';
 import { isAdvancedModel, modelSettings, snapshotModelSettings } from './projection/modelSettings.js';
+import { resolveExportSettings } from './projection/exportSettings.js';
+import { modelLabel } from './projection/models.js';
 
 const $ = id => document.getElementById(id);
 
@@ -147,17 +149,17 @@ async function start() {
   const exportSettings = {
     fps: 60, seconds: 32, resolution: '3840 × 2160', generated: 512,
     format: 'mp4', quality: 'master', diffusionFps: 8, orbit: 40, hold: 0.2,
-    engine: 'fast', ...modelSettings('fast', 'detail'),
+    useLiveModel: true, engine: 'fast', ...modelSettings('fast', 'detail'),
   };
   // measured cost per generated frame, so the estimate is honest about this machine
   const ENGINE_COST_MS = { fast: 150, fine: 11000, best: 32000, sdxl: 2000, klein: 3000, flux: 15000 };
   const CUDA_ENGINE_COST_MS = { fast: 200, fine: 800, best: 1400, sdxl: 1500, klein: 4000, flux: 15000 };
-  const estimateRecording = () => {
-    const plan = exportPlan(exportSettings);
-    const interval = diffusionInterval(plan.fps, exportSettings.diffusionFps);
+  const estimateRecording = settings => {
+    const plan = exportPlan(settings);
+    const interval = diffusionInterval(plan.fps, settings.diffusionFps);
     const images = Math.ceil(plan.frames / interval);
     const costs = projector.state.device?.includes('cuda') ? CUDA_ENGINE_COST_MS : ENGINE_COST_MS;
-    const perImage = projector.state.perFrameMs?.[exportSettings.engine] || costs[exportSettings.engine] || 150;
+    const perImage = projector.state.perFrameMs?.[settings.engine] || costs[settings.engine] || 150;
     const seconds = (images * perImage) / 1000 + plan.frames * 0.05;
     return { plan, images, seconds, clock: clockText(seconds) };
   };
@@ -171,15 +173,8 @@ async function start() {
 
   async function recordVideo() {
     if (recording.active) { recording.cancel = true; return; }
-    if (projector.params.enabled) {
-      await projector.health();
-      if (!projector.state.engines.includes(exportSettings.engine)) {
-        toast(projector.state.models?.[exportSettings.engine]?.reason || 'This image engine is unavailable on this service.', 7000);
-        return;
-      }
-    }
-    const estimate = estimateRecording();
-    const settings = { ...exportSettings };
+    const settings = resolveExportSettings(exportSettings, projector.params);
+    const estimate = estimateRecording(settings);
     const plan = exportPlan(settings);
     const target = RESOLUTIONS[settings.resolution];
     const generated = Number(isAdvancedModel(settings.engine) ? settings.generated : settings.modelSize);
@@ -190,6 +185,7 @@ async function start() {
       scale: quality.params.scale,
       level: quality.params.level,
       running: projector.params.running,
+      enabled: projector.params.enabled,
       priority: projector.params.priority,
       engine: projector.params.engine,
       modelSettings: snapshotModelSettings(projector.params),
@@ -206,17 +202,23 @@ async function start() {
     sculpture.setQuiet(true);
     $('clip-link').hidden = true;
     try {
+      await projector.health();
+      if (!projector.state.engines.includes(settings.engine)) {
+        throw new Error(projector.state.models?.[settings.engine]?.reason || `${modelLabel(settings.engine)} is unavailable on this service.`);
+      }
       // Live animation keeps running until the uploaded photo's depth and reveal
       // are ready. Otherwise frame zero can contain the previous photo's shape.
-      showProgress(`preparing ${estimate.images} generated images · about ${estimate.clock} · waiting for photo depth…`, 0);
+      showProgress(`preparing ${modelLabel(settings.engine)} · ${estimate.images} images · about ${estimate.clock} · waiting for photo depth…`, 0);
       await sculpture.whenReady({ cancelled: () => recording.cancel });
       if (recording.cancel) return;
       const photoGeneration = sculpture.state.generation;
-      if (projector.params.enabled) await projector.prepareRecording();
+      await projector.prepareRecording();
       projector.params.running = false;
       projector.params.priority = true;
       projector.params.engine = settings.engine;
       Object.assign(projector.params, snapshotModelSettings(settings));
+      // The selected export model still renders when live projection is off.
+      if (!projector.params.enabled) projector.setEnabled(true);
       renderer.setAnimationLoop(null);
       stopped = true;
       quality.params.auto = false;
@@ -229,7 +231,7 @@ async function start() {
       post.setSize(width, height);
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
-      if (projector.params.enabled && generated !== projector.params.size) projector.setSize(generated);
+      if (generated !== projector.params.size) projector.setSize(generated);
       recorder = window.VideoEncoder
         ? await createFrameWriter(renderer.domElement, {
             fps: plan.fps, format: settings.format,
@@ -256,8 +258,8 @@ async function start() {
         solver.updateDensity();
         sculpture.update(plan.dt);
         // Encode only after this pose has received its own generated image.
-        if (projector.params.enabled && frame % interval === 0) {
-          showProgress(`generating image ${Math.floor(frame / interval) + 1} / ${estimate.images} · ${settings.engine}${frame === 0 ? ' · first use may load the model' : ''}`, (frame / plan.frames) * 100);
+        if (frame % interval === 0) {
+          showProgress(`generating image ${Math.floor(frame / interval) + 1} / ${estimate.images} · ${modelLabel(settings.engine)}${frame === 0 ? ' · first use may load the model' : ''}`, (frame / plan.frames) * 100);
           await projector.recordFrame(frame / plan.fps);
         }
         if (photoGeneration !== sculpture.state.generation) throw new Error('The photo changed during recording. Restart the recording with its new depth.');
@@ -293,6 +295,7 @@ async function start() {
       projector.params.priority = before.priority;
       projector.params.engine = before.engine;
       Object.assign(projector.params, before.modelSettings);
+      if (projector.params.enabled !== before.enabled) projector.setEnabled(before.enabled);
       if (projector.params.size !== before.generated) {
         projector.setSize(before.generated);
       }

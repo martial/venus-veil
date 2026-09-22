@@ -7,6 +7,10 @@ export const IMAGE_ENGINES = {
   'FLUX.1 Depth · depth + text': 'flux',
 };
 
+export function modelLabel(engine) {
+  return Object.entries(IMAGE_ENGINES).find(([, value]) => value === engine)?.[0].split(' · ')[0] || engine;
+}
+
 export function modelNote(engine, state) {
   const model = state.models?.[engine];
   if (model && !model.available) return model.reason;
@@ -14,5 +18,5 @@ export function modelNote(engine, state) {
   if (engine === 'klein') return 'Photo reference editing; depth fidelity is experimental. Slower than live.';
   if (engine === 'flux') return 'Dedicated depth + text. The photo caption is used; photo identity is not preserved.';
   if (engine === 'sdxl') return 'Dedicated depth + photo, generated at 768 px for finer detail.';
-  return engine === 'fast' ? 'Matches the live image engine.' : 'Depth + photo. Appearance differs from the live engine.';
+  return engine === 'fast' ? 'One-step image generation.' : 'Depth + photo conditioning.';
 }

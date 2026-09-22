@@ -4,7 +4,7 @@ import { LIVE_PRESETS, pickSize, resolveLive, promptForReference } from '../pres
 import { createReferenceUpload } from './reference.js';
 import { createLiveTransport } from './liveTransport.js';
 import { createLiveClock } from './liveClock.js';
-import { recordProjectedFrame } from './recording.js';
+import { assertRecordedEngine, recordProjectedFrame } from './recording.js';
 import { createModelSettingsBank, isAdvancedModel, modelSettings } from './modelSettings.js';
 import { createMorphTimeline, isFluxModel, morphFrame } from './morph.js';
 
@@ -492,6 +492,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       // the service restarted and forgot the photo: send it again, the next frame will have it
       if (response.status === 409) { reference.invalidate(referenceId); reference.ensure(); return; }
       if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
+      if (strict) assertRecordedEngine(params.engine, response.headers.get('X-Engine'));
       const tHeaders = performance.now();
       const jpeg = response.headers.get('Content-Type')?.startsWith('image/jpeg');
       const received = jpeg ? await response.blob() : new Uint8Array(await response.arrayBuffer());
