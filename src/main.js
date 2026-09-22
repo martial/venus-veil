@@ -150,11 +150,13 @@ async function start() {
   };
   // measured cost per generated frame, so the estimate is honest about this machine
   const ENGINE_COST_MS = { fast: 150, fine: 11000, best: 32000, sdxl: 2000, klein: 3000, flux: 15000 };
+  const CUDA_ENGINE_COST_MS = { fast: 200, fine: 800, best: 1400, sdxl: 1500, klein: 4000, flux: 15000 };
   const estimateRecording = () => {
     const plan = exportPlan(exportSettings);
     const interval = diffusionInterval(plan.fps, exportSettings.diffusionFps);
     const images = Math.ceil(plan.frames / interval);
-    const perImage = projector.state.perFrameMs?.[exportSettings.engine] || ENGINE_COST_MS[exportSettings.engine] || 150;
+    const costs = projector.state.device?.includes('cuda') ? CUDA_ENGINE_COST_MS : ENGINE_COST_MS;
+    const perImage = projector.state.perFrameMs?.[exportSettings.engine] || costs[exportSettings.engine] || 150;
     const seconds = (images * perImage) / 1000 + plan.frames * 0.05;
     return { plan, images, seconds, clock: clockText(seconds) };
   };

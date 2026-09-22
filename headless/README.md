@@ -129,9 +129,14 @@ Klein interprets depth as an image reference (experimental), while FLUX.1 uses
 native depth conditioning plus text; FLUX.1 does not preserve photo identity via
 IP-Adapter. Slower models keep the cloth moving while generating one image at a
 time, without a queue of stale poses. On the RTX 5090, DreamShaper and SDXL deliver
-roughly 1–2 new images per second; SDXS remains the high-rate option. The image
+roughly 0.5–2 new images per second including network latency and shared GPU use;
+SDXS remains the high-rate option. The image
 counter measures actual generation separately from scene frame rate. First use
 loads the optional model; SDXL takes about 25 seconds, then reuses it.
+
+DreamShaper's default carry is zero: every frame uses the original photo and
+current depth with fixed noise. Recursive img2img is still an expert option,
+but long chains can turn sculpture details into a flat pattern.
 
 On a CUDA pod already configured by `pod-setup.sh`:
 
