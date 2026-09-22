@@ -34,6 +34,11 @@ window.__veilHeadless = (() => {
       if (settings.generated && projector.params.size !== settings.generated) projector.setSize(settings.generated);
       projector.state.resetCarry = true;
       if (!projector.params.enabled) projector.setEnabled(true);
+      // a frame is a screenshot of the canvas's rectangle, which would include
+      // the panel, the title and the previews floating over it: keep only the canvas
+      const bare = document.createElement('style');
+      bare.textContent = 'body > :not(#viewport) { visibility: hidden !important; }';
+      document.head.appendChild(bare);
       // full detail: a headless render is never in a hurry
       quality.params.auto = false;
       quality.reset(1, 0);

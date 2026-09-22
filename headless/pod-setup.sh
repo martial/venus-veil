@@ -14,7 +14,10 @@ say() { printf '\n\033[1m[venus] %s\033[0m\n' "$*"; }
 
 say "system packages"
 apt-get update -qq
-apt-get install -y -qq --no-install-recommends git curl ca-certificates ffmpeg openssl python3-venv python3-pip >/dev/null
+# libegl1/libgles2: without the EGL loader, headless Chromium cannot reach the GPU
+# and draws WebGL on the CPU, about 16 s a frame instead of a fraction of one
+apt-get install -y -qq --no-install-recommends git curl ca-certificates ffmpeg openssl python3-venv python3-pip \
+  libegl1 libgles2 libopengl0 >/dev/null
 if ! command -v node >/dev/null || [ "$(node -v | cut -c2- | cut -d. -f1)" -lt 20 ]; then
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null
   apt-get install -y -qq nodejs >/dev/null

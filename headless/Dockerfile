@@ -9,6 +9,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     HF_HOME=/models/huggingface \
     OMP_NUM_THREADS=8 \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics \
     MKL_NUM_THREADS=8 \
     NODE_MAJOR=22
 
@@ -16,7 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl gnupg git ffmpeg python3 python3-pip python3-venv \
       libgl1 libglib2.0-0 libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
       libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
-      libpango-1.0-0 libcairo2 fonts-liberation \
+      libpango-1.0-0 libcairo2 fonts-liberation libegl1 libgles2 libopengl0 \
     && curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
