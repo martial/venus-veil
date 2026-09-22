@@ -8,6 +8,8 @@ FROM nvidia/cuda:12.8.1-runtime-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     HF_HOME=/models/huggingface \
+    OMP_NUM_THREADS=8 \
+    MKL_NUM_THREADS=8 \
     NODE_MAJOR=22
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

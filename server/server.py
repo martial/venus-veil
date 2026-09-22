@@ -42,6 +42,7 @@ NEGATIVE_PROMPT = ('blurry, low quality, jpeg artifacts, text, watermark, signat
                    'flat, washed out, duplicated limbs, deformed hands, cartoon')
 
 ENGINES = ('fast', 'fine', 'best')      # fast = one-step Core ML, the others multi-step on Metal
+LIVE_STEPS = 4                          # live frames on a GPU server, where there is no one-step engine
 IDLE_RELEASE_S = 180                    # the quality engine gives its memory back when unused
 
 state = {'status': 'loading', 'model': 'IDKiro/sdxs-512-dreamshaper + sketch ControlNet', 'device': 'coreml (cpu/gpu/ane)',
@@ -278,14 +279,17 @@ def create_app(load=True):
                 import numpy as np
                 engine = use_engine(frame['engine'], preset_reset=frame['reset'])
                 depth = np.frombuffer(pixels, dtype=np.uint8).reshape(frame['size'], frame['size'])
-                if frame['engine'] == 'fast':
+                if state['engine'] == 'fast':
                     if frame['size'] != engine.size:
                         engine.load_size(frame['size'])
                     rgb, stages = engine.generate(depth, frame['prompt'], frame['seed'], frame['guidance'],
                                                   frame['drift'], frame['drift_phase'])
                 else:
+                    # a live frame on a box without Core ML: the multi-step engine stands in,
+                    # at the few steps LCM needs, so live projection keeps moving
+                    steps = frame['steps'] or (LIVE_STEPS if frame['engine'] == 'fast' else None)
                     rgb, stages = engine.generate(depth, frame['prompt'], frame['seed'], frame['guidance'],
-                                                  frame['drift'], frame['drift_phase'], steps=frame['steps'],
+                                                  frame['drift'], frame['drift_phase'], steps=steps,
                                                   cfg=frame['cfg'], carry=frame['carry'], negative=frame['negative'],
                                                   cn_scale=frame['cn_scale'])
                 if frame['format'] == 'rgba':

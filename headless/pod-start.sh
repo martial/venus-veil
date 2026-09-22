@@ -7,6 +7,8 @@ DIR=${VENUS_DIR:-/workspace/venus-veil}
 PORT=${VENUS_PORT:-5191}
 LOGS=${VENUS_LOGS:-/workspace/venus-logs}
 export HF_HOME=${HF_HOME:-/workspace/huggingface}
+# the pod shows every host CPU but may use a dozen: keep the math libraries to that
+export OMP_NUM_THREADS=${OMP_NUM_THREADS:-8} MKL_NUM_THREADS=${MKL_NUM_THREADS:-8}
 cd "$DIR"
 mkdir -p "$LOGS"
 
