@@ -17,6 +17,7 @@ Binary protocol (no base64, no PNG on the way in):
       503    → model still loading or failed
 """
 import gc
+import gzip
 import json
 import os
 import struct
@@ -43,6 +44,7 @@ NEGATIVE_PROMPT = ('blurry, low quality, jpeg artifacts, text, watermark, signat
 
 ENGINES = ('fast', 'fine', 'best')      # fast = one step (Core ML, or PyTorch on a server), the others multi-step
 LIVE_STEPS = 4                          # live frames on a box without the one-step weights
+LIVE_WAIT_S = 0.25                      # how long a live frame waits for the engine before it is dropped
 ROOMY = sys.platform != 'darwin'        # a server card holds every engine at once; a laptop holds one
 IDLE_RELEASE_S = 180                    # the quality engine gives its memory back when unused
 
@@ -61,6 +63,13 @@ class FrameError(ValueError):
 
 def parse_frame(body, allowed_sizes=(128, 192, 256, 384, 512)):
     """Parse the binary request. Pure: unit-testable without models."""
+    if body[:2] == b'\x1f\x8b':
+        # a page across the internet gzips its depth map. Unambiguous: a raw body
+        # starts with its header length, which can never be 0x8b1f
+        try:
+            body = gzip.decompress(body)
+        except (OSError, EOFError) as error:
+            raise FrameError(f'bad gzip body: {error}') from error
     if len(body) < 4:
         raise FrameError('empty request')
     (length,) = struct.unpack('<I', body[:4])
@@ -289,8 +298,10 @@ def create_app(load=True):
         # other request, health included.
         # loading a multi-step engine takes half a minute and happens under this
         # lock, so a waiting recording must be patient
+        # A live frame may wait a moment: a page across the internet keeps several
+        # requests on the wire, and they arrive a few milliseconds apart.
         acquired = await run_in_threadpool(
-            lambda: lock.acquire(blocking=frame['priority'], timeout=300 if frame['priority'] else -1))
+            lambda: lock.acquire(timeout=300 if frame['priority'] else LIVE_WAIT_S))
         if not acquired:
             return Response('one frame is already being generated', status_code=429)
         try:

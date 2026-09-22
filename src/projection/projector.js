@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createDepthRaster, rasterDepth, buildStructure, downsampleGray, rotateQuarter, packFrame } from './rasterDepth.js';
+import { LIVE_PRESETS, pickSize, resolveLive } from '../presets.js';
 
 /**
  * Live projection: the veil's depth, seen from a projector at the viewer, goes
@@ -34,6 +35,12 @@ export function wireFormat(endpoint) {
   } catch {
     return 'rgba';
   }
+}
+
+/** Gzip a request body: a depth map is mostly smooth and mostly empty, so it shrinks several times. */
+async function gzipped(bytes) {
+  const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
 let decodeCanvas = null;
@@ -85,7 +92,11 @@ export const PROJECTOR_DEFAULTS = {
   priority: false,     // a recording waits its turn on the service instead of skipping a frame
   liveInterval: 1,     // re-rasterise live occlusion every n frames (raised by the frame budget)
   physicsRelief: 0.25, // while projecting, how much of the sculpture still shapes the cloth
+  live: 'auto',        // real-time preset (LIVE_PRESETS): resolution and rate of live projection
+  inFlight: 0,         // requests on the wire at once; 0 = 1 on this machine, 3 across the internet
 };
+
+const MAX_IN_FLIGHT = 4;
 
 const MODE_LABELS = { woven: 'woven into fabric', projector: 'physical projector', locked: 'frame-locked pairs' };
 
@@ -98,7 +109,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
   const state = {
     status: 'offline', error: null, model: null, device: null,
     endpoint: defaultEndpoint(),
-    busy: false, requested: 0, presented: 0, fps: 0, latencyMs: 0, inferenceMs: 0, sizes: [256],
+    busy: false, inFlight: 0, requested: 0, presented: 0, lastPresentedId: 0, liveApplied: null, fps: 0, latencyMs: 0, inferenceMs: 0, sizes: [256],
     engines: ['fast'], engine: 'fast', perFrameMs: {},   // measured cost of each engine
     resetCarry: false,
     driftPhase: 0, driftLabel: 'base prompt', slot: 1,
@@ -147,7 +158,13 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
   };
   const slots = [0, 1].map(() => ({ image: null, depth: null, has: false }));
   const figure = new Float32Array(solver.count);   // relief × mask, per particle
-  const pending = { raster: null, model: null, turned: null, rgba: null, pos: new Float32Array(solver.pos.length), matrix: new THREE.Matrix4() };
+  // One capture per request in flight: across the internet several are on the wire
+  // at once, each holding the pose its image will be laid back onto.
+  const captures = Array.from({ length: MAX_IN_FLIGHT }, () => ({
+    raster: null, model: null, turned: null, rgba: null, busy: false,
+    pos: new Float32Array(solver.pos.length), matrix: new THREE.Matrix4(),
+  }));
+  let previewModel = null;      // scratch for the calibration grid's depth preview
   let liveRaster = null, liveDepth = null;
 
   /**
@@ -171,10 +188,13 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     liveDepth = new THREE.DataTexture(liveRaster.metric, params.depthSize, params.depthSize, THREE.RedFormat, THREE.FloatType);
     liveDepth.minFilter = liveDepth.magFilter = THREE.NearestFilter;
     liveDepth.generateMipmaps = false;
-    pending.raster = createDepthRaster(params.depthSize);
-    pending.model = new Uint8Array(n * n);
-    pending.turned = new Uint8Array(n * n);
-    pending.rgba = new Uint8Array(n * n * 4);
+    for (const capture of captures) {
+      capture.raster = createDepthRaster(params.depthSize);
+      capture.model = new Uint8Array(n * n);
+      capture.turned = new Uint8Array(n * n);
+      capture.rgba = new Uint8Array(n * n * 4);
+    }
+    previewModel = new Uint8Array(n * n);
     u.uProjTexel.value = 1 / params.depthSize;
     u.uProjMix.value = state.slot;
     resizePreviews(n);
@@ -252,7 +272,8 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
   }
 
   // ------------------------------------------------------------ service
-  let generation = 0, abort = null, lastRequest = 0, lastPresent = 0, nextHealth = 0, healthBusy = false, placeQueued = false;
+  const controllers = new Set();
+  let generation = 0, lastRequest = 0, lastPresent = 0, nextHealth = 0, healthBusy = false, placeQueued = false;
   let lastPhaseTime = performance.now(), gridTick = 0, liveTick = 0;
 
   async function health() {
@@ -268,12 +289,12 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       state.device = h.device;
       if (Array.isArray(h.sizes) && h.sizes.length) state.sizes = h.sizes;
       if (Array.isArray(h.engines) && h.engines.length) state.engines = h.engines;
-      // a GPU server has no 256 px model: move to the nearest size it does have,
-      // or every live frame would be refused
-      if (state.status === 'ready' && !state.sizes.includes(params.size)) {
-        const larger = state.sizes.filter(n => n >= params.size);
-        setSize(larger.length ? Math.min(...larger) : Math.max(...state.sizes));
-        clearSlots();
+      // a recording (priority) owns the size until it ends
+      if (state.status === 'ready' && !params.priority) {
+        // the real-time preset depends on what the service runs on; apply it once that is known
+        if (resolveLive(params.live, state.device) !== state.liveApplied) applyLive(params.live);
+        // a service without this size would refuse every live frame: take the nearest it has
+        else if (!state.sizes.includes(params.size)) { setSize(pickSize(params.size, state.sizes)); clearSlots(); }
       }
       state.engine = h.engine || state.engine;
     } catch (error) {
@@ -292,12 +313,36 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     return params.enabled && params.mode === 'locked' && params.show === 'generated' && params.running && state.status === 'ready';
   }
 
+  /** How many requests may be on the wire: one on this machine, a few across the internet. */
+  function inFlightLimit() {
+    if (params.mode === 'locked' || params.priority) return 1;     // one pose per image, or a recording
+    const limit = params.inFlight || (wireFormat(state.endpoint) === 'jpeg' ? 3 : 1);
+    return Math.max(1, Math.min(MAX_IN_FLIGHT, limit));
+  }
+
+  /** Switch the real-time preset: resolution and request rate of live projection. */
+  function applyLive(name = params.live) {
+    params.live = name;
+    const resolved = resolveLive(name, state.device);
+    const preset = LIVE_PRESETS[resolved];
+    state.liveApplied = resolved;
+    params.maxFps = preset.maxFps;
+    const size = pickSize(preset.size, state.sizes);
+    if (size !== params.size) { setSize(size); clearSlots(); }
+    api.onLive?.(resolved, preset);
+    return resolved;
+  }
+
   async function requestFrame() {
+    const pending = captures.find(c => !c.busy);
+    if (!pending) return;
+    pending.busy = true;
     const epoch = generation;
+    state.inFlight++;
     state.busy = true;
     const started = performance.now();
     const controller = new AbortController();
-    abort = controller;
+    controllers.add(controller);
     try {
       if (locksSimulation()) stepFrame(1 / 30);
       if (params.follow || placeQueued) { aimAtViewer(); placeQueued = false; }
@@ -329,10 +374,12 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
         cn_scale: params.cnScale || undefined,
         reset: state.resetCarry || undefined,
       }, params.upright ? rotateQuarter(pending.model, params.size, pending.turned) : pending.model);
-      const tSend = performance.now();
       state.resetCarry = false;
+      // across the internet the upload is most of the wait: send it compressed
+      const payload = wireFormat(state.endpoint) === 'jpeg' ? await gzipped(body) : body;
+      const tSend = performance.now();
       const response = await fetch(`${state.endpoint}/generate`, {
-        method: 'POST', body, headers: { 'Content-Type': 'application/octet-stream' },
+        method: 'POST', body: payload, headers: { 'Content-Type': 'application/octet-stream' },
         // a multi-step engine can take a minute, and may load itself first
         signal: AbortSignal.any([controller.signal, AbortSignal.timeout(params.engine === 'fast' ? 20000 : 600000)]),
       });
@@ -350,6 +397,9 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       const rgba = params.upright ? rotateQuarter(received, params.size, pending.rgba, 4) : received;
       const tDecoded = performance.now();
       if (epoch !== generation) return;
+      // with several on the wire an older image can land after a newer one: drop it
+      if (frameId < state.lastPresentedId) return;
+      state.lastPresentedId = frameId;
 
       // ---- atomic present: image + capture pose + matrix + depth into the older slot
       const s = 1 - state.slot;
@@ -391,8 +441,10 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       if (error.name === 'TypeError' || error.name === 'TimeoutError') { state.status = 'offline'; state.error = null; }
       else state.error = error.message;
     } finally {
-      if (abort === controller) abort = null;
-      state.busy = false;
+      controllers.delete(controller);
+      pending.busy = false;
+      state.inFlight--;
+      state.busy = state.inFlight > 0;
       report();
     }
   }
@@ -400,7 +452,8 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
   // ------------------------------------------------------------ lifecycle
   function clearSlots() {
     generation++;
-    abort?.abort();
+    for (const controller of controllers) controller.abort();
+    state.lastPresentedId = 0;
     for (const slot of slots) { slot.has = false; slot.image.image.data.fill(0); slot.image.needsUpdate = true; }
     state.slot = 1;
     u.uProjMix.value = 0;
@@ -464,11 +517,11 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       rasterDepth(liveRaster, solver.pos, indices, m.elements, near, far);
       liveDepth.needsUpdate = true;
       if (params.show === 'grid' && gridTick++ % 3 === 0) {
-        downsampleGray(liveRaster.gray, params.depthSize, pending.model, params.size);
-        drawDepthPreview(pending.model);
+        downsampleGray(liveRaster.gray, params.depthSize, previewModel, params.size);
+        drawDepthPreview(previewModel);
       }
     }
-    if (params.show === 'generated' && params.running && state.status === 'ready' && !state.busy
+    if (params.show === 'generated' && params.running && state.status === 'ready' && state.inFlight < inFlightLimit()
       && document.visibilityState !== 'hidden' && now - lastRequest >= 1000 / params.maxFps) {
       lastRequest = now;
       requestFrame();
@@ -513,7 +566,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     folder.add(params, 'emphasis', 0, 1, 0.01).name('sculpture in depth map');
     folder.add(params, 'carry', 0, 0.9, 0.05).name('carry previous frame');
     folder.add(params, 'upright').name('figure upright for model');
-    folder.add(params, 'size', [256, 384, 512]).name('generated resolution').onChange(value => {
+    folder.add(params, 'size', [256, 384, 512, 768]).name('generated resolution').onChange(value => {
       const n = Number(value);
       if (!state.sizes.includes(n)) {
         toast(`the service has no ${n} px model · npm run projector:setup -- --sizes ${n}`);
@@ -538,8 +591,9 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
 
   setSize(params.size);
 
-  return {
-    params, state, camera, buildControls, setEnabled, update, health, clearSlots, setSize,
+  const api = {
+    params, state, camera, buildControls, setEnabled, update, health, clearSlots, setSize, applyLive,
+    onLive: null,       // (name, preset) => void, when the real-time preset is applied
     /** Re-apply params that were changed in bulk (a look preset). */
     refresh() { bindSlots(); applySurface(); applyPhysicsRelief(); report(); },
     /** Request and present one frame now (debug / headless checks). */
@@ -553,6 +607,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       scene.remove(mirror.group);
     },
   };
+  return api;
 }
 
 /** Round screen on a slim stand that shows the latest generated frame (shares the slot uniforms). */

@@ -101,3 +101,24 @@ test('every look leaves the cloth stable', () => {
 test('an unknown look is refused', () => {
   assert.throws(() => applyPreset('nope', {}), /unknown preset/);
 });
+
+import { LIVE_PRESETS, pickSize, resolveLive } from '../src/presets.js';
+
+test('real-time presets resolve for the service they run against', () => {
+  assert.equal(resolveLive('auto', 'cuda'), 'sharp', 'a GPU server can afford 512 px');
+  assert.equal(resolveLive('auto', 'coreml (cpu/gpu/ane)'), 'fluid', 'the Mac stays at 256 px');
+  assert.equal(resolveLive('auto', null), 'fluid');
+  assert.equal(resolveLive('detail', 'cuda'), 'detail');
+  assert.equal(resolveLive('nonsense', 'cuda'), 'fluid');
+  for (const [name, preset] of Object.entries(LIVE_PRESETS)) {
+    if (name === 'auto') continue;
+    assert.ok(preset.size >= 256 && preset.maxFps >= 1, name);
+  }
+});
+
+test('a size the service lacks falls back to the nearest it has', () => {
+  assert.equal(pickSize(256, [384, 512, 768]), 384);
+  assert.equal(pickSize(768, [256, 384, 512]), 512);
+  assert.equal(pickSize(512, [256, 384, 512, 768]), 512);
+  assert.equal(pickSize(384, []), 384);
+});

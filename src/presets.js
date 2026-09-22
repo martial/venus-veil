@@ -137,3 +137,29 @@ export function applyPreset(name, ctx = {}) {
   }
   return preset;
 }
+
+/**
+ * Real-time presets: how finely and how often live projection re-imagines the
+ * veil. Independent of the look, which says what the veil is made of. A size the
+ * service does not have falls back to the nearest one it does (pickSize).
+ */
+export const LIVE_PRESETS = {
+  auto: { label: 'auto', note: 'chosen for the service: fluid on this Mac, sharp on a GPU server' },
+  fluid: { label: 'fluid', note: '256 px · as many images a second as the service makes', size: 256, maxFps: 60 },
+  balanced: { label: 'balanced', note: '384 px · 30 images a second', size: 384, maxFps: 30 },
+  sharp: { label: 'sharp', note: '512 px · 30 images a second', size: 512, maxFps: 30 },
+  detail: { label: 'max detail', note: '768 px · 20 images a second · GPU server', size: 768, maxFps: 20 },
+};
+
+/** The concrete preset behind a name: 'auto' asks what the service runs on. */
+export function resolveLive(name, device) {
+  if (name !== 'auto') return LIVE_PRESETS[name] ? name : 'fluid';
+  return device === 'cuda' ? 'sharp' : 'fluid';
+}
+
+/** The smallest available size at least as fine as the one wanted, else the largest there is. */
+export function pickSize(wanted, sizes) {
+  if (!sizes?.length) return wanted;
+  const finer = sizes.filter(n => n >= wanted);
+  return finer.length ? Math.min(...finer) : Math.max(...sizes);
+}

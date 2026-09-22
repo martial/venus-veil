@@ -1,5 +1,5 @@
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
-import { PRESETS, applyPreset } from './presets.js';
+import { LIVE_PRESETS, PRESETS, applyPreset, resolveLive } from './presets.js';
 import { QUALITIES, RESOLUTIONS } from './record.js';
 
 /**
@@ -26,6 +26,22 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
     refresh();
   });
   lookController.domElement.parentElement.insertBefore(note, lookController.domElement.nextSibling);
+
+  if (projector) {
+    // resolution and rate of live projection, independent of the look
+    const liveOptions = Object.fromEntries(Object.entries(LIVE_PRESETS).map(([key, p]) => [p.label, key]));
+    const liveNote = document.createElement('div');
+    liveNote.className = 'look-note';
+    const describe = resolved => {
+      const preset = LIVE_PRESETS[resolved];
+      liveNote.textContent = projector.params.live === 'auto' ? `${preset.label} · ${preset.note}` : preset.note;
+    };
+    describe(resolveLive(projector.params.live, projector.state.device));
+    const liveController = gui.add(projector.params, 'live', liveOptions).name('real time')
+      .onChange(name => { projector.applyLive(name); refresh(); });
+    liveController.domElement.parentElement.insertBefore(liveNote, liveController.domElement.nextSibling);
+    projector.onLive = resolved => { describe(resolved); refresh(); };
+  }
 
   gui.add(wind.params, 'speed', 0, 5, 0.01).name('wind');
   gui.add(wind.params, 'turbulence', 0, 3, 0.01).name('turbulence');

@@ -94,6 +94,20 @@ class HealthTest(unittest.TestCase):
         self.assertEqual(client.post('/generate', content=b'').status_code, 503)
 
 
+class GzipBodyTest(unittest.TestCase):
+    def test_gzipped_body_parses_like_raw(self):
+        import gzip
+        raw = pack({'size': 256, 'prompt': 'stone'}, bytes(range(256)) * 256)
+        a, pixels_a = parse_frame(raw, (256,))
+        b, pixels_b = parse_frame(gzip.compress(raw), (256,))
+        self.assertEqual(a['prompt'], b['prompt'])
+        self.assertEqual(bytes(pixels_a), bytes(pixels_b))
+
+    def test_broken_gzip_is_a_frame_error(self):
+        with self.assertRaises(FrameError):
+            parse_frame(b'\x1f\x8b' + b'not gzip at all', (256,))
+
+
 class EncodeTest(unittest.TestCase):
     def test_png_without_core_ml(self):
         # a Linux service has no coremltools: answering must not import generator.py
