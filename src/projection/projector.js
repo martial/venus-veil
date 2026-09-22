@@ -243,6 +243,13 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       state.device = h.device;
       if (Array.isArray(h.sizes) && h.sizes.length) state.sizes = h.sizes;
       if (Array.isArray(h.engines) && h.engines.length) state.engines = h.engines;
+      // a GPU server has no 256 px model: move to the nearest size it does have,
+      // or every live frame would be refused
+      if (state.status === 'ready' && !state.sizes.includes(params.size)) {
+        const larger = state.sizes.filter(n => n >= params.size);
+        setSize(larger.length ? Math.min(...larger) : Math.max(...state.sizes));
+        clearSlots();
+      }
       state.engine = h.engine || state.engine;
     } catch (error) {
       state.status = 'offline';

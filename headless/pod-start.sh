@@ -28,7 +28,9 @@ for _ in $(seq 1 120); do
   printf '.'; sleep 3
 done
 
-POD=${RUNPOD_POD_ID:-<pod-id>}
+# an ssh session does not inherit the pod's environment; the container's first process has it
+POD=${RUNPOD_POD_ID:-$(tr '\0' '\n' < /proc/1/environ 2>/dev/null | sed -n 's/^RUNPOD_POD_ID=//p')}
+POD=${POD:-<pod-id>}
 cat <<INFO
 
   web page   https://${POD}-${PORT}.proxy.runpod.net/?token=${TOKEN}

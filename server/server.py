@@ -142,10 +142,16 @@ def load_without_coreml(reason):
         state.update(status='error', error=f'no engine available: {reason}')
         print(f'projector has no engine: {reason}', flush=True)
         return
-    state.update(status='ready', engines=['fine', 'best'], engine='unloaded',
+    started = time.perf_counter()
+    state.update(engines=['fine', 'best'], engine='unloaded',
                  model='Lykon/dreamshaper-8 + depth ControlNet', device=quality_module.pick_device(),
-                 sizes=[384, 512, 768], load_s=0)
-    print(f'projector ready · engines fine, best · {state["device"]} (no Core ML here)', flush=True)
+                 sizes=[384, 512, 768])
+    # load it now rather than on the first frame: over a proxy that first frame
+    # would time out while the weights come off disk
+    with lock:
+        use_engine('fine')
+    state.update(status='ready', load_s=round(time.perf_counter() - started, 1))
+    print(f'projector ready in {state["load_s"]} s · engines fine, best · {state["device"]} (no Core ML here)', flush=True)
 
 
 def use_engine(name, preset_reset=False):
@@ -198,6 +204,8 @@ def release_idle_engine():
     global quality
     if quality is None or time.time() - last_quality_use < IDLE_RELEASE_S:
         return
+    if sys.platform != 'darwin':
+        return          # a server card holds it for good: nothing else wants the memory
     if not lock.acquire(blocking=False):
         return
     try:
