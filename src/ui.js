@@ -167,6 +167,7 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
   setExpert(false);
 
   // ---------------------------------------------------------------- export
+  let recordController;
   if (exportSettings) {
     const fExport = gui.addFolder('Export');
     const engineNote = document.createElement('div');
@@ -202,7 +203,7 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
       fExport.add(exportSettings, 'generated', [256, 384, 512]).name('generated resolution');
       fExport.add(exportSettings, 'diffusionFps', 1, 60, 1).name('new image per second');
     }
-    fExport.add({ record: () => actions.record() }, 'record').name('record a video');
+    recordController = fExport.add({ record: () => actions.record() }, 'record').name('record a video');
     fExport.close();
   }
 
@@ -219,6 +220,7 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
 
   return {
     gui, state, refresh,
+    setRecording(active) { recordController?.name(active ? 'stop recording' : 'record a video'); },
     folders: { fWind, fCloth, fSurf, fLight, fSculpt, fProject, fActions },
     applyLook(name) { state.look = name; applyPreset(name, context); note.textContent = PRESETS[name].note; refresh(); },
   };

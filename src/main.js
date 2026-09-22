@@ -168,7 +168,6 @@ async function start() {
     progressEl.classList.add('visible');
   };
 
-  let armed = 0;
   async function recordVideo() {
     if (recording.active) { recording.cancel = true; return; }
     if (projector.params.enabled) {
@@ -179,15 +178,6 @@ async function start() {
       }
     }
     const estimate = estimateRecording();
-    // a multi-step engine turns a 32 s master into an evening: say so, then wait
-    // for a second press
-    if (estimate.seconds > 120 && performance.now() - armed > 20000) {
-      armed = performance.now();
-      showProgress(`${estimate.plan.frames} frames · ${estimate.images} generated images · about ${estimate.clock} — press record again to start`, 4);
-      toast(`this recording will take about ${estimate.clock}`, 6000);
-      return;
-    }
-    armed = 0;
     const settings = { ...exportSettings };
     const plan = exportPlan(settings);
     const target = RESOLUTIONS[settings.resolution];
@@ -211,12 +201,13 @@ async function start() {
     let recorder, stopped = false, saved = false;
     recording.active = true;
     recording.cancel = false;
+    ui.setRecording(true);
     sculpture.setQuiet(true);
     $('clip-link').hidden = true;
     try {
       // Live animation keeps running until the uploaded photo's depth and reveal
       // are ready. Otherwise frame zero can contain the previous photo's shape.
-      showProgress('preparing recording · waiting for photo depth…', 0);
+      showProgress(`preparing ${estimate.images} generated images · about ${estimate.clock} · waiting for photo depth…`, 0);
       await sculpture.whenReady({ cancelled: () => recording.cancel });
       if (recording.cancel) return;
       const photoGeneration = sculpture.state.generation;
@@ -295,6 +286,7 @@ async function start() {
       }
       setTimeout(() => progressEl.classList.remove('visible'), 2500);
       recording.active = false;
+      ui.setRecording(false);
       sculpture.setQuiet(false);
       projector.params.running = before.running;
       projector.params.priority = before.priority;
