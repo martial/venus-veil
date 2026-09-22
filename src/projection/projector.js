@@ -17,6 +17,18 @@ import { createDepthRaster, rasterDepth, buildStructure, downsampleGray, rotateQ
  *              pose is exactly the pose its image was generated for
  */
 
+/**
+ * Where the diffusion service lives. On this Mac (the dev server) and on the
+ * published page it is the local service. Anywhere else the page was served by
+ * headless/serve.mjs — a rented GPU box, say — which proxies /projector on the
+ * same origin, so there is no CORS and no mixed content.
+ */
+export function defaultEndpoint(where = typeof location === 'undefined' ? null : location) {
+  if (!where) return 'http://127.0.0.1:5193';
+  const local = where.hostname.endsWith('github.io') || where.port === '5190';
+  return local ? 'http://127.0.0.1:5193' : `${where.origin}/projector`;
+}
+
 export const PROJECTOR_DEFAULTS = {
   enabled: false,
   mode: 'woven',
@@ -60,7 +72,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
   const capAttributes = [geometry.getAttribute('aCap0'), geometry.getAttribute('aCap1')];
   const state = {
     status: 'offline', error: null, model: null, device: null,
-    endpoint: 'http://127.0.0.1:5193',   // direct (the dev proxy /projector adds a hop)
+    endpoint: defaultEndpoint(),
     busy: false, requested: 0, presented: 0, fps: 0, latencyMs: 0, inferenceMs: 0, sizes: [256],
     engines: ['fast'], engine: 'fast', perFrameMs: {},   // measured cost of each engine
     resetCarry: false,

@@ -46,9 +46,19 @@ export async function serveDirectory(root, port = 5191, { service = '', token = 
   const server = http.createServer(async (request, response) => {
     try {
       const url = new URL(request.url, 'http://localhost');
-      if (token && url.searchParams.get('token') !== token && request.headers['x-venus-token'] !== token) {
-        response.writeHead(401).end('this renderer is protected with a token');
-        return;
+      const cookieHeaders = {};
+      if (token) {
+        const cookie = /(?:^|;\s*)venus_token=([^;]+)/.exec(request.headers.cookie || '')?.[1];
+        const offered = url.searchParams.get('token') || request.headers['x-venus-token'] || cookie;
+        if (offered !== token) {
+          response.writeHead(401, { 'Content-Type': 'text/plain' }).end('this renderer is protected: open it with ?token=…');
+          return;
+        }
+        // the link carries the token once; afterwards the browser sends it as a cookie,
+        // so scripts, images and generation requests all pass
+        if (url.searchParams.get('token') === token) {
+          cookieHeaders['Set-Cookie'] = `venus_token=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800`;
+        }
       }
       if (service && url.pathname.startsWith('/projector')) {
         await proxy(request, response, service, url);
@@ -63,6 +73,7 @@ export async function serveDirectory(root, port = 5191, { service = '', token = 
       if (!info) { file = path.join(root, 'index.html'); info = await stat(file).catch(() => null); }
       if (!info) { response.writeHead(404).end('not found'); return; }
       response.writeHead(200, {
+        ...cookieHeaders,
         'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream',
         'Content-Length': info.size,
         'Cache-Control': 'no-store',

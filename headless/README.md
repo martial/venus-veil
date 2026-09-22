@@ -50,6 +50,19 @@ card runs SD 1.5 at roughly 20 steps per second at 512, so `best` lands near a
 second a frame instead of the 30 seconds this laptop needs — a 12 second clip at
 12 images per second is about 2.5 minutes of work.
 
+## Setting up a pod
+
+On a RunPod pod (any Ubuntu image with an NVIDIA GPU; the PyTorch template is the quickest):
+
+```
+curl -fsSL https://raw.githubusercontent.com/martial/venus-veil/main/headless/pod-setup.sh | bash
+bash /workspace/venus-veil/headless/pod-start.sh
+```
+
+Setup installs Node, ffmpeg, the Python packages and headless Chromium, builds the app and fetches
+the weights into `/workspace`, so it all survives a pod restart. Start prints the web address with
+its token. Expose HTTP port 5191 in the pod settings for the web page.
+
 ## Using it from your own browser, with the GPU on the pod
 
 The interactive page can run in your laptop's browser while the generation happens on the pod.

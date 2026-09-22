@@ -1,0 +1,38 @@
+#!/bin/bash
+# Start the diffusion service and the web page on a pod. Prints the address.
+#   bash headless/pod-start.sh            # web page + service, token protected
+#   VENUS_PORT=8888 bash headless/pod-start.sh
+set -euo pipefail
+DIR=${VENUS_DIR:-/workspace/venus-veil}
+PORT=${VENUS_PORT:-5191}
+LOGS=${VENUS_LOGS:-/workspace/venus-logs}
+export HF_HOME=${HF_HOME:-/workspace/huggingface}
+cd "$DIR"
+mkdir -p "$LOGS"
+
+# one token per pod, kept so a restart keeps the same link
+TOKEN_FILE=/workspace/venus-token
+[ -s "$TOKEN_FILE" ] || openssl rand -hex 12 > "$TOKEN_FILE"
+TOKEN=${VENUS_TOKEN:-$(cat "$TOKEN_FILE")}
+
+pkill -f "server/server.py" 2>/dev/null || true
+pkill -f "headless/serve.mjs" 2>/dev/null || true
+sleep 1
+
+nohup python3 server/server.py > "$LOGS/service.log" 2>&1 &
+nohup node headless/serve.mjs --port "$PORT" --token "$TOKEN" > "$LOGS/web.log" 2>&1 &
+
+printf 'waiting for the diffusion service'
+for _ in $(seq 1 120); do
+  if curl -s -m 3 http://127.0.0.1:5193/health | grep -q '"status":"ready"'; then echo ' ready'; break; fi
+  printf '.'; sleep 3
+done
+
+POD=${RUNPOD_POD_ID:-<pod-id>}
+cat <<INFO
+
+  web page   https://${POD}-${PORT}.proxy.runpod.net/?token=${TOKEN}
+             (expose HTTP port ${PORT} in the pod settings if it is not listed)
+  headless   cd $DIR && node headless/render.mjs --seconds 8 --engine best --out /workspace/clip.mp4
+  logs       $LOGS/service.log · $LOGS/web.log
+INFO
