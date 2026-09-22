@@ -15,6 +15,30 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
   const state = { look: 'limestone', expert: false };
   const modelViews = [];
   if (projector) projector.onModels = () => modelViews.forEach(update => update());
+  const explainUnavailableModels = controller => {
+    const availability = document.createElement('div');
+    availability.className = 'look-note';
+    availability.setAttribute('role', 'status');
+    controller.domElement.after(availability);
+    const update = () => {
+      const unavailable = new Map();
+      const options = controller.domElement.querySelectorAll('option');
+      Object.entries(IMAGE_ENGINES).forEach(([label, engine], index) => {
+        const disabled = !projector.state.engines.includes(engine);
+        const reason = disabled ? modelNote(engine, projector.state) : '';
+        options[index].disabled = disabled;
+        options[index].title = reason;
+        if (disabled) {
+          if (!unavailable.has(reason)) unavailable.set(reason, []);
+          unavailable.get(reason).push(label.split(' · ')[0]);
+        }
+      });
+      availability.textContent = [...unavailable].map(([reason, names]) => `${names.join(', ')}: ${reason}`).join(' ');
+      availability.hidden = unavailable.size === 0;
+    };
+    modelViews.push(update);
+    update();
+  };
 
   const refresh = () => gui.controllersRecursive().forEach(c => c.updateDisplay());
 
@@ -58,12 +82,8 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
       const name = liveModel.engine;
       modelDescription.textContent = name === 'fast' ? 'Fast live generation. The scene and image update together.'
         : `${modelNote(name, projector.state)} New images arrive at the model’s measured speed; the cloth keeps moving.`;
-      for (const option of modelController.domElement.querySelectorAll('option')) {
-        const engine = IMAGE_ENGINES[option.textContent];
-        option.disabled = !projector.state.engines.includes(engine);
-        option.title = projector.state.models?.[engine]?.reason || '';
-      }
     };
+    explainUnavailableModels(modelController);
     modelViews.push(updateLiveModel);
     updateLiveModel();
     // how many new images live projection asks for; frames in between crossfade
@@ -175,10 +195,6 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
     engineNote.setAttribute('role', 'status');
     const updateModels = () => {
       engineNote.textContent = modelNote(exportSettings.engine, projector.state);
-      for (const option of engineControl.domElement.querySelectorAll('option')) {
-        const name = IMAGE_ENGINES[option.textContent];
-        option.disabled = !projector.state.engines.includes(name);
-      }
     };
     const engineControl = fExport.add(exportSettings, 'engine', IMAGE_ENGINES)
       .name('image engine').onChange(engine => {
@@ -190,7 +206,7 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
         updateModels();
       });
     engineControl.domElement.after(engineNote);
-    if (projector) { modelViews.push(updateModels); updateModels(); }
+    if (projector) { explainUnavailableModels(engineControl); modelViews.push(updateModels); updateModels(); }
     fExport.add(exportSettings, 'steps', 0, 40, 1).name('steps (0 = engine default)');
     fExport.add(exportSettings, 'format', { 'MP4 (H.264)': 'mp4', 'WebM (VP9)': 'webm' }).name('format');
     fExport.add(exportSettings, 'resolution', Object.keys(RESOLUTIONS)).name('resolution');
