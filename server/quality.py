@@ -86,6 +86,8 @@ class TorchDepthGenerator:
         self.size = size
         self.prompt = None
         self.previous = None        # last generated image, for carry
+        self.anchor = None          # colour of the first frame of a carried chain
+        self.hold_colour = True
         self.drift_label = 'base prompt'
         self._build()
         self.set_preset(preset)
@@ -146,6 +148,26 @@ class TorchDepthGenerator:
 
     def reset_carry(self):
         self.previous = None
+        self.anchor = None
+
+    def _hold_colour(self, result, mask):
+        """Keep a carried chain on the palette it started with.
+
+        Each frame starts from the previous one, and every pass under guidance
+        lifts contrast and saturation a little; carried forward, that compounds
+        until stone turns to orange and black within a couple of seconds (seen
+        on a 20-image best clip). Matching each frame's colour mean and spread
+        to the chain's first frame stops the drift and leaves shapes free.
+        """
+        pixels = result[mask]
+        if pixels.shape[0] < 64:
+            return result
+        mean, spread = pixels.mean(axis=0), pixels.std(axis=0) + 1e-4
+        if self.anchor is None:
+            self.anchor = (mean, spread)
+            return result
+        target_mean, target_spread = self.anchor
+        return np.clip((result - mean) / spread * target_spread + target_mean, 0, 1)
 
     def warmup(self, prompt):
         blank = np.zeros((self.size, self.size), dtype=np.uint8)
@@ -200,6 +222,12 @@ class TorchDepthGenerator:
         # check the floats: once they are bytes, a NaN looks exactly like black
         if not np.isfinite(result).all():
             raise RuntimeError('the model produced non-finite pixels (fp16 overflow)')
+        carried = strength < 1.0
+        if prompt != self.prompt or not carried:
+            self.anchor = None      # a fresh chain, or a new material with its own palette
+            self.prompt = prompt
+        if self.hold_colour:
+            result = self._hold_colour(result, depth > 0)
         output = np.clip(result * 255, 0, 255).astype(np.uint8)
         if output.max() == 0:
             raise RuntimeError('the model produced an empty frame')

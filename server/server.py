@@ -41,8 +41,9 @@ ALLOWED_ORIGINS += [o.strip() for o in os.environ.get('VENUS_ALLOWED_ORIGINS', '
 NEGATIVE_PROMPT = ('blurry, low quality, jpeg artifacts, text, watermark, signature, frame, border, '
                    'flat, washed out, duplicated limbs, deformed hands, cartoon')
 
-ENGINES = ('fast', 'fine', 'best')      # fast = one-step Core ML, the others multi-step on Metal
-LIVE_STEPS = 4                          # live frames on a GPU server, where there is no one-step engine
+ENGINES = ('fast', 'fine', 'best')      # fast = one step (Core ML, or PyTorch on a server), the others multi-step
+LIVE_STEPS = 4                          # live frames on a box without the one-step weights
+ROOMY = sys.platform != 'darwin'        # a server card holds every engine at once; a laptop holds one
 IDLE_RELEASE_S = 180                    # the quality engine gives its memory back when unused
 
 state = {'status': 'loading', 'model': 'IDKiro/sdxs-512-dreamshaper + sketch ControlNet', 'device': 'coreml (cpu/gpu/ane)',
@@ -137,22 +138,25 @@ def free_memory_gb():
 
 
 def load_without_coreml(reason):
-    """No Core ML (a Linux box, say): the multi-step engines carry the service."""
+    """No Core ML (a Linux box, say): the same one-step models run in PyTorch, next to the multi-step ones."""
+    import fast_torch
     import quality as quality_module
-    if not quality_module.available():
+    engines = (['fast'] if fast_torch.available() else []) + (['fine', 'best'] if quality_module.available() else [])
+    if not engines:
         state.update(status='error', error=f'no engine available: {reason}')
         print(f'projector has no engine: {reason}', flush=True)
         return
     started = time.perf_counter()
-    state.update(engines=['fine', 'best'], engine='unloaded',
-                 model='Lykon/dreamshaper-8 + depth ControlNet', device=quality_module.pick_device(),
-                 sizes=[384, 512, 768])
-    # load it now rather than on the first frame: over a proxy that first frame
+    state.update(engines=engines, engine='unloaded', device=quality_module.pick_device(), sizes=[256, 384, 512, 768],
+                 model='SDXS DreamShaper + sketch ControlNet (live) · DreamShaper 8 + depth ControlNet (recording)')
+    # load them now rather than on the first frame: over a proxy that first frame
     # would time out while the weights come off disk
     with lock:
-        use_engine('fine')
+        for name in [e for e in ('fine', 'fast') if e in engines]:
+            use_engine(name)
     state.update(status='ready', load_s=round(time.perf_counter() - started, 1))
-    print(f'projector ready in {state["load_s"]} s · engines fine, best · {state["device"]} (no Core ML here)', flush=True)
+    print(f'projector ready in {state["load_s"]} s · engines {", ".join(engines)} · {state["device"]} (no Core ML here)',
+          flush=True)
 
 
 def use_engine(name, preset_reset=False):
@@ -161,14 +165,21 @@ def use_engine(name, preset_reset=False):
     if name == 'fast' and 'fast' not in state['engines']:
         name = state['engines'][0]      # no Core ML here: use the multi-step engine
     if name == 'fast':
-        if quality is not None:
+        if quality is not None and not ROOMY:
             quality.unload()
             quality = None
             print('quality engine released', flush=True)
         if generator is None:
-            from generator import SketchGenerator
-            generator = SketchGenerator(256, compute_units=os.environ.get('VENUS_COMPUTE_UNITS', 'ALL'))
-            state['sizes'] = generator.sizes or [256]
+            started = time.perf_counter()
+            if ROOMY:
+                from fast_torch import TorchSketchGenerator
+                generator = TorchSketchGenerator(256)
+                generator.warmup(DEFAULT_PROMPT)
+            else:
+                from generator import SketchGenerator
+                generator = SketchGenerator(256, compute_units=os.environ.get('VENUS_COMPUTE_UNITS', 'ALL'))
+                state['sizes'] = generator.sizes or [256]
+            print(f'fast engine ready in {time.perf_counter() - started:.1f} s', flush=True)
         state['engine'] = 'fast'
         return generator
     if name not in state['engines']:
@@ -180,9 +191,8 @@ def use_engine(name, preset_reset=False):
         if free is not None and free < 1.2:
             raise MemoryError(f'only {free:.1f} GB free: close a few windows before recording with {name}')
     import quality as quality_module
-    if generator is not None:
-        # on a laptop the two engines are mutually exclusive; a server card can
-        # hold the diffusion pipeline alone anyway
+    if generator is not None and not ROOMY:
+        # on a laptop the two engines are mutually exclusive
         generator.loaded.clear()
         generator = None
         gc.collect()

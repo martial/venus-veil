@@ -112,5 +112,25 @@ class EncodeTest(unittest.TestCase):
         self.assertTrue(jpeg.startswith(b'\xff\xd8'))
 
 
+class SketchEdgesTest(unittest.TestCase):
+    def test_torch_edges_match_the_core_ml_engine(self):
+        # the pod's one-step engine must trace depth exactly as the Mac's does,
+        # or the same look would render differently there
+        import numpy as np
+        import torch
+        from fast_torch import sketch_edges
+        rng = np.random.default_rng(3)
+        depth = (rng.random((64, 64)) * 255).astype(np.uint8)
+        depth[:8] = 0
+        gray = depth.astype(np.float32) / 255
+        padded = np.pad(gray, 1)
+        gx = np.abs(padded[1:-1, 2:] - padded[1:-1, :-2])
+        gy = np.abs(padded[2:, 1:-1] - padded[:-2, 1:-1])
+        for guidance in (.5, .85, 1.4):
+            expected = np.clip((gx + gy) * 7 * (guidance / .85), 0, 1)
+            got = sketch_edges(torch.from_numpy(gray), guidance).numpy()
+            np.testing.assert_allclose(got, expected, atol=1e-6)
+
+
 if __name__ == '__main__':
     unittest.main()
