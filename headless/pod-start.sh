@@ -17,9 +17,9 @@ TOKEN_FILE=/workspace/venus-token
 [ -s "$TOKEN_FILE" ] || openssl rand -hex 12 > "$TOKEN_FILE"
 TOKEN=${VENUS_TOKEN:-$(cat "$TOKEN_FILE")}
 
-pkill -f "server/server.py" 2>/dev/null || true
-pkill -f "server/advanced_worker.py" 2>/dev/null || true
-pkill -f "headless/serve.mjs" 2>/dev/null || true
+pkill -f 'python[0-9.]* server/server[.]py$' 2>/dev/null || true
+pkill -f 'python[0-9.]* server/advanced_worker[.]py$' 2>/dev/null || true
+pkill -f '^node headless/serve[.]mjs ' 2>/dev/null || true
 sleep 1
 
 nohup "${VENUS_VENV:-/workspace/venus-venv}/bin/python" server/server.py > "$LOGS/service.log" 2>&1 &
