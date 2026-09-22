@@ -10,8 +10,8 @@ Two presets, both DPM++ 2M Karras with classifier-free guidance:
     fine   8 steps
     best   18 steps
 
-Frames carry: each one starts from the previous generated image, so the
-material and the light persist while the folds change.
+Frames use fixed noise, the original photo and fresh depth. Recursive img2img
+carry is opt-in: long chains can drift from sculpture into a flat pattern.
 """
 import gc
 import math
@@ -34,8 +34,8 @@ NEGATIVE = ('blurry, low quality, jpeg artifacts, text, watermark, signature, fr
 # Low-guidance LCM collapsed photo-conditioned cloth into a smooth coloured
 # silhouette. Eight DPM++ steps retain scales and relief at a comparable cost.
 PRESETS = {
-    'fine': {'steps': 8, 'cfg': 4.0, 'scheduler': 'dpm', 'carry': 0.45, 'cn_scale': 0.65, 'cn_end': 0.75},
-    'best': {'steps': 18, 'cfg': 4.0, 'scheduler': 'dpm', 'carry': 0.45, 'cn_scale': 0.65, 'cn_end': 0.75},
+    'fine': {'steps': 8, 'cfg': 4.0, 'scheduler': 'dpm', 'carry': 0, 'cn_scale': 0.65, 'cn_end': 0.75},
+    'best': {'steps': 18, 'cfg': 4.0, 'scheduler': 'dpm', 'carry': 0, 'cn_scale': 0.65, 'cn_end': 0.75},
 }
 
 

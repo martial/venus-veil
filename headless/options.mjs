@@ -14,7 +14,7 @@ export const DEFAULTS = {
   height: 1080,
   generated: 512,
   seed: 42,
-  carry: 0.45,
+  carry: 0,
   orbit: 40,
   hold: 0.2,
   prompt: '',             // empty = the look's own prompt

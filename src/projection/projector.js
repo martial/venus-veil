@@ -80,7 +80,7 @@ export const PROJECTOR_DEFAULTS = {
   engine: 'fast',      // 'fast' one-step live engine · 'fine' / 'best' multi-step, for recordings
   steps: 0,            // 0 = the engine's own default
   cfg: null,
-  carry: 0.45,         // how much of the previous frame each new one starts from
+  carry: 0,            // opt-in: recursive img2img can lose the subject over a long clip
   cnScale: 0,          // 0 = the engine's own default depth strength
   priority: false,     // a recording waits its turn on the service instead of skipping a frame
   liveInterval: 1,     // re-rasterise live occlusion every n frames (raised by the frame budget)
