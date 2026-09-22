@@ -58,6 +58,9 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
   }
   if (projector) {
     gui.add(projector.params, 'enabled').name('live projection').onChange(v => { projector.setEnabled(v); refresh(); });
+    const screenOnly = gui.add(projector.params, 'screenOnly').name('voile blanc · écran seul')
+      .onChange(() => projector.refresh());
+    screenOnly.domElement.title = 'Coché : voile blanc et image sur l’écran rond. Décoché : projection aussi sur le grand voile.';
   }
 
   // ---------------------------------------------------------------- expert

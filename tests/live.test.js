@@ -43,30 +43,31 @@ test('live sockets keep the token requirement and reject a foreign browser origi
 });
 
 test('the live relay generates the newest waiting pose and bounds the inference queue', async () => {
-  let release, sawFirst;
-  const started = new Promise(r => { sawFirst = r; });
+  let release;
+  const held = new Promise(r => { release = r; });
   const generated = [];
   const f = await fixture(async (req, res) => {
     const chunks = []; for await (const chunk of req) chunks.push(chunk);
     const value = Buffer.concat(chunks)[0]; generated.push(value);
-    if (value === 1) { await new Promise(r => { release = r; sawFirst(); }); }
+    if (value <= 2) await held;
     res.writeHead(200, { 'Content-Type': 'image/jpeg', 'X-Inference-Ms': '17' }); res.end(Buffer.from([value]));
   });
   const ws = new WebSocket(f.wsUrl); const replies = new Map();
   ws.on('message', data => { const packet = unpackLive(data); replies.set(packet.meta.id, packet); });
   try {
     await once(ws, 'open');
-    ws.send(packLive({ id: 1 }, new Uint8Array([1]))); await started;
+    ws.send(packLive({ id: 1 }, new Uint8Array([1])));
     const skipped = once(ws, 'message');
     ws.send(packLive({ id: 2 }, new Uint8Array([2])));
     ws.send(packLive({ id: 3 }, new Uint8Array([3])));
+    ws.send(packLive({ id: 4 }, new Uint8Array([4])));
     await skipped;
-    assert.equal(replies.get(2).meta.status, 204);
+    assert.equal(replies.get(3).meta.status, 204);
     release();
-    while (!replies.has(3)) await once(ws, 'message');
-    assert.deepEqual(generated, [1, 3]);
-    assert.deepEqual([...replies.get(3).payload], [3]);
-    assert.equal(replies.get(3).meta.headers['x-inference-ms'], '17');
+    while (!replies.has(4)) await once(ws, 'message');
+    assert.deepEqual(generated, [1, 2, 4]);
+    assert.deepEqual([...replies.get(4).payload], [4]);
+    assert.equal(replies.get(4).meta.headers['x-inference-ms'], '17');
   } finally { release?.(); ws.terminate(); await f.close(); }
 });
 

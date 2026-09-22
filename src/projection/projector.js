@@ -68,6 +68,7 @@ export const PROJECTOR_DEFAULTS = {
   wanderSpeed: 0.12,       // materials per second
   size: 256,          // model resolution
   depthSize: 512,     // occlusion capture resolution (downsampled for the model)
+  screenOnly: false,     // white fabric; generated light stays on the round screen
   surface: 'diffusion',   // 'diffusion' = the final image is the generated result alone
   power: 0.8,
   catch: 0.35,
@@ -536,11 +537,16 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
 
   function applySurface() {
     const defines = { ...(material.defines || {}) };
-    const only = params.enabled && params.surface === 'diffusion';
+    if (params.screenOnly) defines.VEIL_WHITE = '';
+    else delete defines.VEIL_WHITE;
+    if (params.enabled && !params.screenOnly) defines.VEIL_PROJECTION = '';
+    else delete defines.VEIL_PROJECTION;
+    const only = params.enabled && !params.screenOnly && params.surface === 'diffusion';
     if (only) defines.VEIL_PROJECTION_ONLY = '';
     else delete defines.VEIL_PROJECTION_ONLY;
     material.defines = defines;
     material.needsUpdate = true;
+    mirror.group.visible = params.enabled && (params.mirror || params.screenOnly);
   }
 
   function applyPhysicsRelief() {
@@ -563,7 +569,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     }
     applySurface();
     applyPhysicsRelief();
-    mirror.group.visible = on && params.mirror;
+    mirror.group.visible = on && (params.mirror || params.screenOnly);
     if (elements.panel) elements.panel.hidden = !on;
     bindSlots();
     report();
@@ -665,7 +671,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     folder.add(params, 'maxFps', 1, 60, 1).name('images per second');
     folder.add(params, 'follow').name('follow viewer');
     folder.add({ place: () => { placeQueued = true; params.follow = false; folder.controllers.forEach(c => c.updateDisplay()); toast('projector placed at this view'); } }, 'place').name('project from this view');
-    folder.add(params, 'mirror').name('round output screen').onChange(v => { mirror.group.visible = params.enabled && v; });
+    folder.add(params, 'mirror').name('round output screen').onChange(v => { mirror.group.visible = params.enabled && (v || params.screenOnly); });
     folder.add(state, 'endpoint').name('service').onFinishChange(v => { state.endpoint = String(v).replace(/\/$/, ''); health(); });
     folder.add({ clear: clearSlots }, 'clear').name('clear projected frames');
   }

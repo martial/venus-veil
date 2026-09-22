@@ -14,6 +14,7 @@ import { PRESET_NAMES } from './presets.js';
 import { cameraAngle, clockText, createFrameWriter, createVideoRecorder, diffusionInterval, evenSize, offerBlob, exportPlan, formatProgress, pickBitrate, whenVisible, QUALITIES, RESOLUTIONS } from './record.js';
 import { createSculpturePipeline } from './pipeline/sculpture.js';
 import { createProjector } from './projection/projector.js';
+import { startActivity } from './activity.js';
 
 const $ = id => document.getElementById(id);
 
@@ -26,6 +27,7 @@ function toast(message, ms = 3200) {
 }
 
 async function start() {
+  startActivity($('activity'));
   const viewport = $('viewport');
   const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', alpha: false });
   const baseDpr = Math.min(window.devicePixelRatio || 1, 2);

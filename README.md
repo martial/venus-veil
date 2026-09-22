@@ -116,7 +116,7 @@ encodes with ffmpeg. See [headless/README.md](headless/README.md).
 ## Frame rate
 
 The studio measures its own frame time and holds the rate above **Performance › minimum fps**
-(24 by default). It lowers resolution first, then steps down the volumetric beam, the floor
+(48 by default, targeting 60). It lowers resolution first, then steps down the volumetric beam, the floor
 reflection, the shadow refresh and multisampling. The readout next to the fps counter shows the
 current resolution when it is below 100%. Turn **hold frame rate** off to pin the settings by hand.
 
@@ -152,6 +152,16 @@ make the sheet crumple more; **Surface › edge glow / back-light** are the orga
 control how strongly the body holds its form against the wind.
 
 ## Live projection
+
+**Voile blanc · écran seul** keeps the floating fabric white while generation continues on
+only the round screen. Uncheck it to restore mapping on the veil; the current photo, look,
+and mapping mode are preserved. The option is independent of the look presets.
+
+On the GPU-hosted app, the indicator under the title shows connected browser tabs, active
+GPU jobs, and queued jobs (including waiting live poses). It updates every two seconds;
+paused tabs still count, and abandoned sessions expire after 30 seconds. These are session
+counts, not identified people. GPU jobs include image generation and photo processing.
+An unreachable service shows unknown job counts rather than a misleading zero.
 
 The veil's depth, seen from a projector at your viewpoint, feeds a local one-step
 diffusion model; the generated image comes back as light on the cloth, with fold

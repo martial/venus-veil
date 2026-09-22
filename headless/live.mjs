@@ -1,10 +1,11 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { packLive, unpackLive } from '../src/projection/liveProtocol.js';
 
-/** One inference and one latest waiting pose per connection. Older waiting
+/** Two pipelined requests and one latest waiting pose per connection. Older waiting
  * poses are acknowledged as skipped instead of building a latency queue. */
 export function attachLive(server, { service, authorized }) {
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024, perMessageDeflate: false });
+  const queued = new Set();
   server.on('upgrade', (request, socket, head) => {
     const url = new URL(request.url, 'http://localhost');
     const origin = request.headers.origin;
@@ -18,7 +19,7 @@ export function attachLive(server, { service, authorized }) {
     sockets.handleUpgrade(request, socket, head, ws => sockets.emit('connection', ws));
   });
   sockets.on('connection', ws => {
-    let active = false, waiting = null, alive = true;
+    let active = 0, waiting = null, alive = true;
     const abort = new AbortController();
     ws.on('pong', () => { alive = true; });
     const heartbeat = setInterval(() => {
@@ -27,7 +28,7 @@ export function attachLive(server, { service, authorized }) {
       ws.ping();
     }, 30000);
     heartbeat.unref();
-    ws.on('close', () => { clearInterval(heartbeat); waiting = null; abort.abort(); });
+    ws.on('close', () => { clearInterval(heartbeat); waiting = null; queued.delete(ws); abort.abort(); });
     ws.on('error', () => { /* close handles cleanup */ });
     const send = (meta, payload) => {
       if (ws.readyState !== WebSocket.OPEN) return;
@@ -35,7 +36,7 @@ export function attachLive(server, { service, authorized }) {
       ws.send(packLive(meta, payload));
     };
     async function run(frame) {
-      active = true;
+      active++;
       try {
         const response = await fetch(`${service.replace(/\/$/, '')}/generate`, {
           method: 'POST', body: frame.payload, headers: { 'Content-Type': 'application/octet-stream' },
@@ -50,21 +51,22 @@ export function attachLive(server, { service, authorized }) {
       } catch (error) {
         if (!abort.signal.aborted) send({ id: frame.meta.id, status: 502 }, new TextEncoder().encode(error.message));
       } finally {
-        active = false;
-        if (waiting && !abort.signal.aborted) { const next = waiting; waiting = null; run(next); }
+        active--;
+        if (waiting && !abort.signal.aborted) { const next = waiting; waiting = null; queued.delete(ws); run(next); }
       }
     }
     ws.on('message', (data, binary) => {
       if (!binary) { ws.close(1003, 'binary frames only'); return; }
       try {
         const frame = unpackLive(data);
-        if (!active) run(frame);
+        if (active < 2) run(frame);
         else {
           if (waiting) send({ id: waiting.meta.id, status: 204 });
           waiting = frame;
+          queued.add(ws);
         }
       } catch { ws.close(1007, 'invalid frame'); }
     });
   });
-  return () => { for (const socket of sockets.clients) socket.terminate(); sockets.close(); };
+  return { get queued() { return queued.size; }, close() { for (const socket of sockets.clients) socket.terminate(); sockets.close(); } };
 }

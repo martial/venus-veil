@@ -87,7 +87,7 @@ the browser's depth model. The description is an approximation, not an exact ide
 without it, image prompts still work with a subject-neutral text prompt.
 
 Live projection uses an authenticated WebSocket on the same port, with HTTP fallback if a
-proxy cannot upgrade the connection. Each connection keeps one inference and the newest
+proxy cannot upgrade the connection. Each connection pipelines two requests and keeps only the newest
 waiting pose; intermediate poses are skipped rather than queued. Recordings keep the ordered
 HTTP path. The one-step CUDA engine replays a graph per resolution, with fresh depth, photo,
 text and seed inputs each time. `VENUS_CUDA_GRAPH=0` restores eager execution for diagnostics.
@@ -104,7 +104,7 @@ The FPS counter measures arrivals over time, so simultaneous replies cannot infl
 Two things to keep in mind. A proxy URL is public to anyone who has it, so pass `--token` and keep
 it out of screenshots; without a token anyone with the link can drive your GPU. And every generated
 frame crosses the internet, which adds roughly 50 to 150 ms per frame — fine for recording, and
-still interactive at a few images a second.
+throughput depends on the connection and the number of active viewers.
 
 If you would rather keep using the published page at martial.github.io, point **Projection ›
 service** at the pod URL and start the service with

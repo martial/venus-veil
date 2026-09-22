@@ -17,6 +17,10 @@
       #title { left: 28px; top: 24px; }
       #title h1 { margin: 0; font: 300 26px/1 Georgia, "Times New Roman", serif; letter-spacing: -0.5px; color: #eae2d4; }
       #title p { margin: 6px 0 0; color: var(--muted); font-size: 11px; letter-spacing: 0.4px; text-transform: uppercase; }
+      #activity { margin-top: 12px; font-size: 11px; color: #b9ad97; font-variant-numeric: tabular-nums; pointer-events: auto; }
+      #activity::before { content: "●"; color: #8daf91; margin-right: 6px; font-size: 8px; }
+      #activity[data-status="offline"]::before { color: #8b857a; }
+      #activity[data-status="loading"]::before { color: #d8c8a6; }
       #footer { left: 28px; right: 28px; bottom: 22px; display: flex; justify-content: space-between; align-items: flex-end; color: var(--muted); font-size: 11px; }
       #footer span i { font-style: normal; margin: 0 8px; opacity: 0.5; }
       #drop-hint { pointer-events: none; }
@@ -58,7 +62,7 @@
   </head>
   <body>
     <div id="viewport"></div>
-    <div id="title" class="chrome"><h1>Venus Veil</h1><p>A form held by air</p></div>
+    <div id="title" class="chrome"><h1>Venus Veil</h1><p>A form held by air</p><div id="activity" role="status" aria-live="off" data-status="loading">connexion…</div></div>
     <div id="progress" class="chrome"><div id="progress-label">loading depth model…</div><div id="progress-track"><div id="progress-bar"></div></div></div>
     <div id="thumbs" class="chrome" hidden><canvas id="thumb-photo" width="144" height="144" title="photo"></canvas><canvas id="thumb-depth" width="144" height="144" title="depth"></canvas><canvas id="thumb-mask" width="144" height="144" title="mask"></canvas></div>
     <div id="projector-panel" class="chrome" hidden>

@@ -52,7 +52,10 @@ IDLE_RELEASE_S = 180                    # the quality engine gives its memory ba
 state = {'status': 'loading', 'model': 'IDKiro/sdxs-512-dreamshaper + sketch ControlNet', 'device': 'coreml (cpu/gpu/ane)',
          'error': None, 'generated': 0, 'last_ms': None, 'sizes': [256], 'engine': 'fast',
          'engines': ['fast'], 'engine_error': None, 'references': False}
+from jobs import Jobs, JobBusy
+
 lock = threading.Lock()
+jobs = Jobs()
 REFERENCE_ID = re.compile(r'[0-9a-f]{16}')
 generator = None          # the fast engine (Core ML on a Mac, PyTorch on a server)
 photos = None             # dropped photos as image prompts (reference.py), on a server
@@ -303,7 +306,6 @@ def create_app(load=True):
         data = await request.body()
         if not data or len(data) > 8_000_000:
             return Response('send one image, up to 8 MB', status_code=400)
-        await run_in_threadpool(lock.acquire)
         try:
             def work():
                 global photos
@@ -312,17 +314,15 @@ def create_app(load=True):
                     photos = reference.ReferenceStore()
                 key = photos.add(data)
                 return {'id': key, 'caption': photos.describe(key)}
-            result = await run_in_threadpool(work)
+            result = await run_in_threadpool(jobs.run, lock, work)
         except Exception as error:  # noqa: BLE001
             return Response(f'could not read the photo: {error}', status_code=400)
-        finally:
-            lock.release()
         return result
 
     @app.get('/health')
     async def health():
         release_idle_engine()
-        return dict(state, busy=lock.locked(), prompt_drift=True, default_prompt=DEFAULT_PROMPT,
+        return dict(state, **jobs.snapshot(), busy=lock.locked(), prompt_drift=True, default_prompt=DEFAULT_PROMPT,
                     negative_prompt=NEGATIVE_PROMPT)
 
     @app.post('/generate')
@@ -340,10 +340,6 @@ def create_app(load=True):
         # lock, so a waiting recording must be patient
         # A live frame may wait a moment: a page across the internet keeps several
         # requests on the wire, and they arrive a few milliseconds apart.
-        acquired = await run_in_threadpool(
-            lambda: lock.acquire(timeout=300 if frame['priority'] else LIVE_WAIT_S))
-        if not acquired:
-            return Response('one frame is already being generated', status_code=429)
         try:
             def work():
                 import numpy as np
@@ -378,13 +374,13 @@ def create_app(load=True):
                     # same bottom-up order as rgba so the page treats both alike
                     return encode_jpeg(np.ascontiguousarray(rgb[::-1])), stages
                 return encode_png(rgb), stages
-            payload, stages = await run_in_threadpool(work)
+            payload, stages = await run_in_threadpool(jobs.run, lock, work, 300 if frame['priority'] else LIVE_WAIT_S)
+        except JobBusy:
+            return Response('one frame is already being generated', status_code=429)
         except UnknownReference:
             return Response('unknown reference: upload the photo again', status_code=409)
         except Exception as error:  # noqa: BLE001
             return Response(f'generation failed: {error}', status_code=500)
-        finally:
-            lock.release()
         state['generated'] += 1
         state['last_ms'] = stages['total_ms']
         engine_object = quality if frame['engine'] != 'fast' else generator

@@ -13,6 +13,7 @@ import { stat } from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import { attachLive } from './live.mjs';
+import { createActivity } from './activity.mjs';
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -48,6 +49,7 @@ export async function serveDirectory(root, port = 5191, { service = '', token = 
     const cookie = /(?:^|;\s*)venus_token=([^;]+)/.exec(request.headers.cookie || '')?.[1];
     return !token || (url.searchParams.get('token') || request.headers['x-venus-token'] || cookie) === token;
   };
+  const activity = createActivity({ service });
   const server = http.createServer(async (request, response) => {
     try {
       const url = new URL(request.url, 'http://localhost');
@@ -62,6 +64,20 @@ export async function serveDirectory(root, port = 5191, { service = '', token = 
         if (url.searchParams.get('token') === token) {
           cookieHeaders['Set-Cookie'] = `venus_token=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800`;
         }
+      }
+      if (service && url.pathname === '/projector/activity') {
+        const session = url.searchParams.get('session');
+        if (request.method === 'POST' && url.searchParams.get('leave') === '1') {
+          activity.leave(session);
+          response.writeHead(204).end();
+        } else if (request.method === 'GET') {
+          if (session && !activity.touch(session)) { response.writeHead(400).end('invalid session'); return; }
+          const snapshot = await activity.snapshot();
+          if (snapshot.queued !== null) snapshot.queued += live.queued;
+          response.writeHead(200, { ...cookieHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+          response.end(JSON.stringify(snapshot));
+        } else response.writeHead(405, { Allow: 'GET, POST' }).end();
+        return;
       }
       if (service && url.pathname.startsWith('/projector')) {
         await proxy(request, response, service, url);
@@ -86,7 +102,7 @@ export async function serveDirectory(root, port = 5191, { service = '', token = 
       response.writeHead(500).end(String(error.message));
     }
   });
-  const closeLive = attachLive(server, { service, authorized });
+  const live = attachLive(server, { service, authorized });
   await new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, host, resolve);
@@ -96,7 +112,7 @@ export async function serveDirectory(root, port = 5191, { service = '', token = 
     port,
     host,
     url: `http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${port}`,
-    close: () => { closeLive(); return new Promise(resolve => server.close(resolve)); },
+    close: () => { live.close(); return new Promise(resolve => server.close(resolve)); },
   };
 }
 

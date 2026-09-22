@@ -220,6 +220,11 @@ export function createVeilMaterial(weave, overrides = {}) {
             return texture2D( map, uv ).rgb * visible;
           }
         #endif`)
+      .replace('#include <map_fragment>', /* glsl */`#ifdef VEIL_WHITE
+        diffuseColor.rgb = vec3( 1.0 );
+        #else
+        #include <map_fragment>
+        #endif`)
       .replace('#include <lights_fragment_begin>', lightsBegin)
       .replace('#include <opaque_fragment>', /* glsl */`
         float veilNdotV = abs( dot( geometryNormal, geometryViewDir ) );
@@ -252,7 +257,7 @@ export function createVeilMaterial(weave, overrides = {}) {
         #endif`);
   };
   material.customProgramCacheKey = () =>
-    `venus-veil-v3${material.defines?.VEIL_PROJECTION ? '-projection' : ''}${material.defines?.VEIL_PROJECTION_ONLY ? '-only' : ''}`;
+    `venus-veil-v4${Object.keys(material.defines || {}).sort().join('-')}`;
   material.userData.uniforms = uniforms;
   material.userData.defaults = d;
   material.userData.weave = weave || null;
