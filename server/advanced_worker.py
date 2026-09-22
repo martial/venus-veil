@@ -10,6 +10,7 @@ import json
 import os
 import threading
 import time
+from collections import OrderedDict
 
 import numpy as np
 import torch
@@ -23,6 +24,8 @@ class AdvancedGenerator:
         torch.set_num_threads(min(8, os.cpu_count() or 1))
         self.name = None
         self.pipe = None
+        self.prompt_cache = OrderedDict()
+        self.resident = False
 
     def load(self, name):
         if self.name == name and self.pipe is not None:
@@ -30,6 +33,8 @@ class AdvancedGenerator:
         paths = installed_paths(name)  # fail before releasing the current model
         self.name = None
         self.pipe = None
+        self.prompt_cache.clear()
+        self.resident = False
         gc.collect()
         torch.cuda.empty_cache()
         if name == 'sdxl':
@@ -53,7 +58,13 @@ class AdvancedGenerator:
             from diffusers import Flux2KleinPipeline
             pipe = Flux2KleinPipeline.from_pretrained(paths['black-forest-labs/FLUX.2-klein-4B'],
                                                      torch_dtype=torch.bfloat16, local_files_only=True)
-            pipe.enable_model_cpu_offload()
+            # A 32 GB RTX can keep Klein alongside the live engines. Moving its
+            # text encoder and transformer over PCIe on every frame is expensive.
+            self.resident = torch.cuda.mem_get_info()[0] >= 20 * 1024 ** 3
+            if self.resident:
+                pipe.to('cuda')
+            else:
+                pipe.enable_model_cpu_offload()
         elif name == 'flux':
             from diffusers import FluxControlPipeline, FluxTransformer2DModel, BitsAndBytesConfig
             path = paths['black-forest-labs/FLUX.1-Depth-dev']
@@ -85,6 +96,7 @@ class AdvancedGenerator:
         steps = frame.get('steps') or ENGINES[name]['steps']
         args = dict(prompt=frame['prompt'], height=size, width=size, num_inference_steps=steps,
                     generator=torch.Generator(device='cpu').manual_seed(frame.get('seed', 42)))
+        prompt_cache_hit = False
         if name == 'sdxl':
             cfg = frame.get('cfg') if frame.get('cfg') is not None else 0.
             scale = frame.get('reference_scale', 1.) if embedding is not None else 0.
@@ -103,12 +115,23 @@ class AdvancedGenerator:
             args['image'] = [control]
             subject = ''
             if photo is not None and frame.get('reference_scale', 1.) > 0:
-                args['image'].append(photo)
+                reference = photo.copy()
+                reference.thumbnail((size, size), Image.Resampling.LANCZOS)
+                args['image'].append(reference)
                 subject = ' Use the subject, appearance and fine details from image 2.'
             args['prompt'] = ('Image 1 is a depth map: preserve its exact silhouette, surface relief and folds. '
                               'Render it as a detailed photograph with directional lighting and deep shadows.'
                               + subject + ' ' + frame['prompt'])
             args['guidance_scale'] = 1.
+            prompt = args.pop('prompt')
+            prompt_cache_hit = prompt in self.prompt_cache
+            if not prompt_cache_hit:
+                embeds, _ = self.pipe.encode_prompt(prompt=prompt, device=self.pipe._execution_device)
+                self.prompt_cache[prompt] = embeds.detach().cpu()
+                if len(self.prompt_cache) > 4:
+                    self.prompt_cache.popitem(last=False)
+            self.prompt_cache.move_to_end(prompt)
+            args['prompt_embeds'] = self.prompt_cache[prompt].to(self.pipe._execution_device)
         else:
             args.update(control_image=control, guidance_scale=frame.get('cfg') if frame.get('cfg') is not None else 10.)
         result = self.pipe(**args).images[0].convert('RGB')
@@ -120,7 +143,8 @@ class AdvancedGenerator:
         return output, {'total_ms': round((ended - started) * 1000, 1),
                         'load_ms': round((loaded - started) * 1000, 1),
                         'sample_ms': round((ended - loaded) * 1000, 1),
-                        'steps': steps, 'render_size': size}
+                        'steps': steps, 'render_size': size, 'resident': self.resident,
+                        'prompt_cache_hit': prompt_cache_hit}
 
 
 def create_app():
