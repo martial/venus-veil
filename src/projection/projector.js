@@ -93,10 +93,10 @@ export const PROJECTOR_DEFAULTS = {
   liveInterval: 1,     // re-rasterise live occlusion every n frames (raised by the frame budget)
   physicsRelief: 0.25, // while projecting, how much of the sculpture still shapes the cloth
   live: 'auto',        // real-time preset (LIVE_PRESETS): resolution and rate of live projection
-  inFlight: 0,         // requests on the wire at once; 0 = 1 on this machine, 3 across the internet
+  inFlight: 0,         // requests on the wire at once; 0 = 1 on this machine, enough for the rate across the internet
 };
 
-const MAX_IN_FLIGHT = 4;
+const MAX_IN_FLIGHT = 8;
 
 const MODE_LABELS = { woven: 'woven into fabric', projector: 'physical projector', locked: 'frame-locked pairs' };
 
@@ -109,7 +109,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
   const state = {
     status: 'offline', error: null, model: null, device: null,
     endpoint: defaultEndpoint(),
-    busy: false, inFlight: 0, requested: 0, presented: 0, lastPresentedId: 0, liveApplied: null, fps: 0, latencyMs: 0, inferenceMs: 0, sizes: [256],
+    busy: false, inFlight: 0, roundTripMs: 0, requested: 0, presented: 0, lastPresentedId: 0, liveApplied: null, fps: 0, latencyMs: 0, inferenceMs: 0, sizes: [256],
     engines: ['fast'], engine: 'fast', perFrameMs: {},   // measured cost of each engine
     resetCarry: false,
     driftPhase: 0, driftLabel: 'base prompt', slot: 1,
@@ -313,11 +313,18 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     return params.enabled && params.mode === 'locked' && params.show === 'generated' && params.running && state.status === 'ready';
   }
 
-  /** How many requests may be on the wire: one on this machine, a few across the internet. */
+  /**
+   * How many requests may be on the wire. On this machine one: the engine is the
+   * limit. Across the internet a round trip costs ~300 ms whatever the GPU does, so
+   * reaching `maxFps` images a second takes about rate × round trip in flight
+   * (30 a second over 300 ms is 9, capped at 8).
+   */
   function inFlightLimit() {
     if (params.mode === 'locked' || params.priority) return 1;     // one pose per image, or a recording
-    const limit = params.inFlight || (wireFormat(state.endpoint) === 'jpeg' ? 3 : 1);
-    return Math.max(1, Math.min(MAX_IN_FLIGHT, limit));
+    if (params.inFlight) return Math.max(1, Math.min(MAX_IN_FLIGHT, params.inFlight));
+    if (wireFormat(state.endpoint) !== 'jpeg') return 1;
+    const roundTrip = (state.roundTripMs || 300) / 1000;
+    return Math.max(1, Math.min(MAX_IN_FLIGHT, Math.ceil(params.maxFps * roundTrip)));
   }
 
   /** Switch the real-time preset: resolution and request rate of live projection. */
@@ -426,6 +433,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       state.fps = state.fps ? state.fps * 0.85 + instant * 0.15 : instant;
       lastPresent = t;
       state.latencyMs = t - started;
+      state.roundTripMs = state.roundTripMs ? state.roundTripMs * 0.8 + state.latencyMs * 0.2 : state.latencyMs;
       state.perFrameMs[params.engine] = state.perFrameMs[params.engine]
         ? state.perFrameMs[params.engine] * 0.7 + (t - started) * 0.3
         : t - started;
@@ -581,7 +589,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     folder.add(params, 'power', 0, 4, 0.01).name('brightness').onChange(bindSlots);
     folder.add(params, 'catch', 0, 1, 0.01).name('fabric catch').onChange(bindSlots);
     folder.add(params, 'blendMs', 0, 400, 1).name('frame blend (ms)');
-    folder.add(params, 'maxFps', 2, 60, 1).name('max generated fps');
+    folder.add(params, 'maxFps', 1, 60, 1).name('images per second');
     folder.add(params, 'follow').name('follow viewer');
     folder.add({ place: () => { placeQueued = true; params.follow = false; folder.controllers.forEach(c => c.updateDisplay()); toast('projector placed at this view'); } }, 'place').name('project from this view');
     folder.add(params, 'mirror').name('round output screen').onChange(v => { mirror.group.visible = params.enabled && v; });

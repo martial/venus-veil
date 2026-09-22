@@ -41,6 +41,8 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
       .onChange(name => { projector.applyLive(name); refresh(); });
     liveController.domElement.parentElement.insertBefore(liveNote, liveController.domElement.nextSibling);
     projector.onLive = resolved => { describe(resolved); refresh(); };
+    // how many new images live projection asks for; frames in between crossfade
+    gui.add(projector.params, 'maxFps', 1, 60, 1).name('images per second');
   }
 
   gui.add(wind.params, 'speed', 0, 5, 0.01).name('wind');

@@ -64,6 +64,7 @@ class TorchSketchGenerator:
         self.loaded = {}             # the server clears this when it releases an engine
         self.size = size
         self.prompt = None
+        self.banks = {}              # prompt -> embeddings, a few kept: two viewers need not re-encode in turn
         self.seed = None
         self.drift_label = 'base prompt'
 
@@ -79,10 +80,14 @@ class TorchSketchGenerator:
     def encode_prompt(self, prompt):
         if prompt == self.prompt:
             return
-        texts = [prompt] + [f'{style}. {prompt}' for _, style in DRIFT_STYLES]
-        tokens = self.tokenizer(texts, padding='max_length', max_length=77, truncation=True, return_tensors='pt')
-        with torch.inference_mode():
-            self.bank = self.encoder(tokens.input_ids.to(self.device))[0]
+        if prompt not in self.banks:
+            texts = [prompt] + [f'{style}. {prompt}' for _, style in DRIFT_STYLES]
+            tokens = self.tokenizer(texts, padding='max_length', max_length=77, truncation=True, return_tensors='pt')
+            with torch.inference_mode():
+                self.banks[prompt] = self.encoder(tokens.input_ids.to(self.device))[0]
+            while len(self.banks) > 8:
+                self.banks.pop(next(iter(self.banks)))
+        self.bank = self.banks[prompt]
         self.prompt = prompt
 
     def warmup(self, prompt):
