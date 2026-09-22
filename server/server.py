@@ -199,6 +199,15 @@ def use_engine(name, preset_reset=False):
     return quality
 
 
+def encode_png(rgb):
+    """Kept here, not in generator.py: that module needs Core ML, which Linux does not have."""
+    import io
+    from PIL import Image
+    buffer = io.BytesIO()
+    Image.fromarray(rgb).save(buffer, format='PNG', compress_level=1)
+    return buffer.getvalue()
+
+
 def release_idle_engine():
     """Give the quality engine's memory back when nothing has used it for a while."""
     global quality
@@ -267,7 +276,6 @@ def create_app(load=True):
         try:
             def work():
                 import numpy as np
-                from generator import encode_png
                 engine = use_engine(frame['engine'], preset_reset=frame['reset'])
                 depth = np.frombuffer(pixels, dtype=np.uint8).reshape(frame['size'], frame['size'])
                 if frame['engine'] == 'fast':

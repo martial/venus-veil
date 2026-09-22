@@ -158,10 +158,3 @@ class SketchGenerator:
             'total_ms': round((done - started) * 1000, 1),
         }
         return output, stages
-
-
-def encode_png(rgb):
-    import io
-    buffer = io.BytesIO()
-    Image.fromarray(rgb).save(buffer, format='PNG', compress_level=1)
-    return buffer.getvalue()

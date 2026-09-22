@@ -94,5 +94,15 @@ class HealthTest(unittest.TestCase):
         self.assertEqual(client.post('/generate', content=b'').status_code, 503)
 
 
+class EncodeTest(unittest.TestCase):
+    def test_png_without_core_ml(self):
+        # a Linux service has no coremltools: answering must not import generator.py
+        import numpy as np
+        from server import encode_png
+        png = encode_png(np.zeros((8, 8, 3), dtype=np.uint8))
+        self.assertTrue(png.startswith(b'\x89PNG'))
+        self.assertNotIn('generator', sys.modules)
+
+
 if __name__ == '__main__':
     unittest.main()
