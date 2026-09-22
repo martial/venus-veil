@@ -105,7 +105,10 @@ function postResult(id, extra, result) {
   self.postMessage({ type: 'result', id, ...extra, textures, previews, reliefGrid, maskGrid, info, backend }, transfer);
 }
 
-self.onmessage = async (event) => {
+// Keep photo and depth from the same job when several files are dropped quickly.
+let jobs = Promise.resolve();
+self.onmessage = event => { jobs = jobs.then(() => handleMessage(event)); };
+async function handleMessage(event) {
   const { type, id } = event.data;
   try {
     if (type === 'load') {
@@ -131,4 +134,4 @@ self.onmessage = async (event) => {
   } catch (err) {
     self.postMessage({ type: 'error', id, message: err?.message || String(err) });
   }
-};
+}

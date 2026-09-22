@@ -22,6 +22,7 @@ CACHE = ROOT / '.models' / 'hf-cache'
 REPO = 'h94/IP-Adapter'
 WEIGHTS = 'models/ip-adapter_sd15.safetensors'
 ENCODER = 'models/image_encoder'
+CAPTION_MODEL = 'Salesforce/blip-image-captioning-base'
 # SDXS attn2 key -> SD 1.5 attn2 key (odd ids count every attention processor in
 # registration order: down blocks, up blocks, mid). SD 1.5: down1.0=5 down2.0=9
 # up1.0=13 up1.1=15 up2.0=19 up2.1=21, the same widths as SDXS's six layers.
@@ -67,6 +68,17 @@ class ReferenceStore:
         self.encoder = CLIPVisionModelWithProjection.from_pretrained(
             snapshot() / ENCODER, torch_dtype=torch.float16).to(device).eval()
         self.processor = CLIPImageProcessor()
+        # Describe the subject once per upload. The look supplies material and
+        # lighting; it must not keep naming Venus when the photo is something else.
+        self.captioner = self.caption_processor = None
+        try:
+            from transformers import BlipForConditionalGeneration, BlipProcessor
+            self.caption_processor = BlipProcessor.from_pretrained(CAPTION_MODEL, cache_dir=CACHE, local_files_only=True)
+            self.captioner = BlipForConditionalGeneration.from_pretrained(
+                CAPTION_MODEL, cache_dir=CACHE, local_files_only=True,
+                torch_dtype=torch.float16).to(device).eval()
+        except OSError:
+            print('photo captions unavailable; using image prompts without a named subject', flush=True)
         self.keep = keep
         self.items = OrderedDict()
 
@@ -81,10 +93,23 @@ class ReferenceStore:
         image = Image.open(io.BytesIO(data)).convert('RGB')
         with torch.inference_mode():
             pixels = self.processor(images=image, return_tensors='pt').pixel_values.to(self.device, torch.float16)
-            self.items[key] = self.encoder(pixels).image_embeds[:, None]      # (1, 1, 1024)
+            embedding = self.encoder(pixels).image_embeds[:, None]      # (1, 1, 1024)
+            caption = ''
+            if self.captioner is not None:
+                inputs = self.caption_processor(images=image, return_tensors='pt').to(self.device, torch.float16)
+                output = self.captioner.generate(**inputs, max_new_tokens=40, num_beams=3, do_sample=False)
+                caption = self.caption_processor.decode(output[0], skip_special_tokens=True).strip()
+            self.items[key] = {'embedding': embedding, 'caption': caption}
         while len(self.items) > self.keep:
             self.items.popitem(last=False)
         return key
 
     def get(self, key):
-        return self.items.get(key)
+        item = self.items.get(key)
+        if item is not None:
+            self.items.move_to_end(key)
+            return item['embedding']
+        return None
+
+    def describe(self, key):
+        return self.items.get(key, {}).get('caption', '')

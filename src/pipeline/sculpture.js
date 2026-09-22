@@ -87,8 +87,7 @@ export function createSculpturePipeline({ solver, material, ribbon, renderer, to
     return canvas.convertToBlob({ type: 'image/jpeg', quality: 0.9 });
   }
 
-  async function loadSource(source, name) {
-    const generation = ++state.generation;
+  async function loadSource(source, name, generation = ++state.generation) {
     state.busy = true;
     try {
       setProgress(`reading ${name}`, 3);
@@ -96,16 +95,20 @@ export function createSculpturePipeline({ solver, material, ribbon, renderer, to
       if (generation !== state.generation) { bitmap.close(); return; }
       state.name = name;
       // copied before the worker takes the bitmap
-      const photo = await photoBlob(bitmap).catch(() => null);
+      const photo = await photoBlob(bitmap);
+      if (generation !== state.generation) { bitmap.close(); return; }
+      // Image prompting is independent of the browser's depth model. In
+      // particular, a slow/failed model download must not leave the old subject.
+      api.onPhoto?.(photo, name);
       setProgress(worker.ready ? 'estimating depth' : 'loading depth model', 8);
       const result = await worker.process(bitmap, snapshotParams(), grid);
       if (generation !== state.generation) { closeResult(result); return; }
       apply(result, true);
-      api.onPhoto?.(photo, name);
       setProgress('sculpture woven into the veil', 100);
       hideProgress();
       toast(`${name}: depth via ${result.backend?.device} in ${result.depthMs} ms`);
     } catch (err) {
+      if (generation !== state.generation) return;
       console.error(err);
       hideProgress(0);
       toast(`could not process ${name}: ${err.message}`, 6000);
@@ -120,10 +123,11 @@ export function createSculpturePipeline({ solver, material, ribbon, renderer, to
   }
 
   async function loadSample() {
+    const generation = ++state.generation;
     try {
       const res = await fetch(sampleUrl);
       const blob = await res.blob();
-      await loadSource(blob, 'willendorf.png');
+      if (generation === state.generation) await loadSource(blob, 'willendorf.png', generation);
     } catch (err) { toast(`sample failed: ${err.message}`); }
   }
 
@@ -213,6 +217,7 @@ export function createSculpturePipeline({ solver, material, ribbon, renderer, to
 
   function clear() {
     state.generation++;
+    state.busy = false;
     state.loaded = false; state.name = null; state.info = null;
     disposeTextures();
     material.map = null;
@@ -286,7 +291,7 @@ export function createSculpturePipeline({ solver, material, ribbon, renderer, to
 
   const api = {
     params, state,
-    onPhoto: null,     // (jpeg blob | null, name) => void, when a photo is woven in or cleared
+    onPhoto: null,     // (jpeg blob | null, name) => void, as soon as a photo is decoded, or cleared
     /** Hold back status messages while something else owns the progress line. */
     setQuiet(value) { quiet.value = value; },
     get backend() { return worker.backend; },

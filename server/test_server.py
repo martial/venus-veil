@@ -109,6 +109,21 @@ class GzipBodyTest(unittest.TestCase):
 
 
 class ReferenceFieldTest(unittest.TestCase):
+    def test_reference_upload_returns_the_caption_for_that_photo(self):
+        from unittest.mock import patch, Mock
+        from fastapi.testclient import TestClient
+        import server
+        photos = Mock()
+        photos.add.return_value = '0123456789abcdef'
+        photos.describe.return_value = 'a green dragon'
+        with patch.dict(server.state, references=True), patch.object(server, 'photos', photos):
+            client = TestClient(server.create_app(load=False))
+            response = client.post('/reference', content=b'photo bytes')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'id': '0123456789abcdef', 'caption': 'a green dragon'})
+        photos.add.assert_called_once_with(b'photo bytes')
+        photos.describe.assert_called_once_with('0123456789abcdef')
+
     def test_photo_id_and_strength(self):
         frame, _ = parse_frame(pack({'size': 256, 'reference': '0123456789abcdef', 'reference_scale': 5}, bytes(256 * 256)), (256,))
         self.assertEqual(frame['reference'], '0123456789abcdef')
@@ -161,6 +176,33 @@ class SketchEdgesTest(unittest.TestCase):
             expected = np.clip((gx + gy) * 7 * (guidance / .85), 0, 1)
             got = sketch_edges(torch.from_numpy(gray), guidance).numpy()
             np.testing.assert_allclose(got, expected, atol=1e-6)
+
+
+class PhotoCarryTest(unittest.TestCase):
+    def test_a_new_photo_resets_recording_history_and_colour(self):
+        from unittest.mock import Mock
+        import numpy as np
+        from PIL import Image
+        from quality import TorchDepthGenerator, PRESETS
+        engine = TorchDepthGenerator.__new__(TorchDepthGenerator)
+        engine.device = 'cpu'
+        engine.prompt = None
+        engine.preset = 'best'
+        engine.referencing = False
+        engine.defaults = PRESETS['best']
+        engine.previous = Image.new('RGB', (64, 64), 'red')
+        engine.previous_photo = object()
+        engine.anchor = (np.ones(3), np.ones(3))
+        engine.hold_colour = True
+        engine.pipe = Mock(return_value=Mock(images=[np.full((64, 64, 3), 0.5, dtype=np.float32)]))
+        photo = object()
+        engine.generate(np.full((64, 64), 160, dtype=np.uint8), 'a dragon', photo=photo, carry=0.45)
+        self.assertEqual(engine.pipe.call_args.kwargs['strength'], 1.0)
+        self.assertIs(engine.previous_photo, photo)
+        engine.generate(np.full((64, 64), 160, dtype=np.uint8), 'a dragon', photo=photo, carry=0.45)
+        self.assertAlmostEqual(engine.pipe.call_args.kwargs['strength'], 0.55)
+        engine.generate(np.full((64, 64), 160, dtype=np.uint8), 'a sculpture', photo=None, carry=0.45)
+        self.assertEqual(engine.pipe.call_args.kwargs['strength'], 1.0)
 
 
 if __name__ == '__main__':

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { createDepthRaster, rasterDepth, buildStructure, downsampleGray, rotateQuarter, packFrame } from './rasterDepth.js';
-import { LIVE_PRESETS, pickSize, resolveLive } from '../presets.js';
+import { LIVE_PRESETS, pickSize, resolveLive, promptForReference } from '../presets.js';
+import { createReferenceUpload } from './reference.js';
 
 /**
  * Live projection: the veil's depth, seen from a projector at the viewer, goes
@@ -291,7 +292,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       if (Array.isArray(h.sizes) && h.sizes.length) state.sizes = h.sizes;
       if (Array.isArray(h.engines) && h.engines.length) state.engines = h.engines;
       state.references = !!h.references;
-      if (state.status === 'ready') ensureReference();
+      if (state.status === 'ready') reference.ensure();
       // a recording (priority) owns the size until it ends
       if (state.status === 'ready' && !params.priority) {
         // the real-time preset depends on what the service runs on; apply it once that is known
@@ -345,33 +346,26 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
 
   // ------------------------------------------------------------ the dropped photo
   // Uploaded once to a service that takes image prompts; frames then name it by id.
-  let referenceBlob = null, referenceUpload = null;
-
-  function setReference(blob) {
-    referenceBlob = blob || null;
-    state.referenceId = null;
-    referenceUpload = null;
-    ensureReference();
-  }
-
-  function ensureReference() {
-    if (!referenceBlob || state.referenceId || !state.references || state.status !== 'ready') return referenceUpload;
-    if (referenceUpload) return referenceUpload;
-    const blob = referenceBlob;
-    referenceUpload = fetch(`${state.endpoint}/reference`, { method: 'POST', body: blob, headers: { 'Content-Type': blob.type } })
-      .then(async response => {
-        if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
-        const { id } = await response.json();
-        if (blob === referenceBlob) state.referenceId = id;
-      })
-      .catch(error => console.warn('[projector] photo upload failed', error))
-      .finally(() => { if (blob === referenceBlob) referenceUpload = null; });
-    return referenceUpload;
-  }
+  const reference = createReferenceUpload({
+    state,
+    onChange() { clearSlots(); state.resetCarry = true; },
+    onStatus() { report(); },
+  });
+  const setReference = blob => reference.set(blob);
 
   async function requestFrame() {
-    // a recording waits for the photo, so its first frames have it too
-    if (params.priority && referenceBlob && state.references && !state.referenceId) await ensureReference();
+    // Neither live frames nor recordings may silently fall back to Venus while
+    // the new photo uploads. The live loop retries; a recording waits explicitly.
+    if (params.reference > 0 && reference.hasPhoto) {
+      const before = generation;
+      const upload = reference.ensure();
+      if (params.priority) await upload;
+      if (before !== generation) return;
+      if (!reference.ready) {
+        if (params.priority) throw new Error(state.referenceError || 'the photo is not ready for recording');
+        return;
+      }
+    }
     const pending = captures.find(c => !c.busy);
     if (!pending) return;
     pending.busy = true;
@@ -401,8 +395,11 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       if (params.wander) state.driftPhase += Math.min(0.5, (now - lastPhaseTime) / 1000) * params.wanderSpeed;
       lastPhaseTime = now;
       const frameId = ++state.requested;
+      const referenceId = params.reference > 0 ? state.referenceId : null;
       const body = packFrame({
-        frame_id: frameId, size: params.size, prompt: params.prompt, seed: params.seed,
+        frame_id: frameId, size: params.size,
+        prompt: referenceId ? promptForReference(params.prompt, state.referenceCaption) : params.prompt,
+        seed: params.seed,
         guidance: params.guidance, drift: params.wander ? params.drift : 0, drift_phase: state.driftPhase,
         format: wireFormat(state.endpoint), priority: params.priority,
         engine: params.engine,
@@ -411,7 +408,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
         carry: params.carry,
         cn_scale: params.cnScale || undefined,
         reset: state.resetCarry || undefined,
-        reference: params.reference > 0 ? state.referenceId || undefined : undefined,
+        reference: referenceId || undefined,
         reference_scale: params.reference,
       }, params.upright ? rotateQuarter(pending.model, params.size, pending.turned) : pending.model);
       state.resetCarry = false;
@@ -427,7 +424,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       if (response.status === 429) { lastRequest = performance.now() + 60; return; }
       if (response.status === 503) { state.status = 'loading'; return; }
       // the service restarted and forgot the photo: send it again, the next frame will have it
-      if (response.status === 409) { state.referenceId = null; ensureReference(); return; }
+      if (response.status === 409) { reference.invalidate(referenceId); reference.ensure(); return; }
       if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
       const tHeaders = performance.now();
       const received = response.headers.get('Content-Type')?.startsWith('image/jpeg')
@@ -576,9 +573,11 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
   function report() {
     const el = elements.status;
     if (!el) return;
-    if (++reportTick % 4 !== 0 && state.status === 'ready' && !state.error) return;
+    if (++reportTick % 4 !== 0 && state.status === 'ready' && !state.error && !state.referenceError && state.referenceStatus !== 'uploading') return;
     let text;
-    if (state.error) text = `projector error · ${state.error}`;
+    if (state.referenceError && params.reference > 0) text = `photo upload failed · ${state.referenceError} · retrying`;
+    else if (state.referenceStatus === 'uploading' && params.reference > 0) text = 'reading the new photo…';
+    else if (state.error) text = `projector error · ${state.error}`;
     else if (state.status === 'offline' && state.hint === 'permission') text = 'projector: allow local network access in Chrome (address bar), and run  npm run projector';
     else if (state.status === 'offline') text = 'projector offline · run  npm run projector';
     else if (state.status === 'loading') text = 'projector loading the model…';

@@ -8,6 +8,7 @@ export const PRESETS = {
   limestone: {
     label: 'Limestone',
     note: 'weathered stone, the figure the sculptor carved',
+    photoStyle: 'weathered limestone sculpture, detailed surface, museum spotlight, black background',
     wind: { speed: 2.2, gustAmp: 0.6, gustFreq: 0.2, turbulence: 2.2, turbScale: 1.0 },
     cloth: { kBase: 8, bendCompliance: 5e-3, shearCompliance: 2e-3, damping: 0.6, kLift: 0.3, gravity: -0.15 },
     material: { opacity: 0.16, roughness: 0.5, sheen: 1, sheenRoughness: 0.6, iridescence: 0.1, color: '#e2ded6' },
@@ -25,6 +26,7 @@ export const PRESETS = {
   bronze: {
     label: 'Bronze',
     note: 'cast metal, oxidised green and copper',
+    photoStyle: 'cast bronze sculpture, oxidised turquoise and copper patina, museum spotlight, black background',
     wind: { speed: 1.6, gustAmp: 0.5, gustFreq: 0.16, turbulence: 1.7, turbScale: 0.85 },
     cloth: { kBase: 11, bendCompliance: 3.5e-3, shearCompliance: 1.6e-3, damping: 0.8, kLift: 0.22, gravity: -0.13 },
     material: { opacity: 0.18, roughness: 0.45, sheen: 0.85, sheenRoughness: 0.55, iridescence: 0.16, color: '#e6ddc8' },
@@ -42,6 +44,7 @@ export const PRESETS = {
   ivory: {
     label: 'Ivory',
     note: 'projection over the lit cloth: pearl and carved ivory',
+    photoStyle: 'polished ivory and mother of pearl sculpture, luminous cream surface, museum spotlight, black background',
     wind: { speed: 1.1, gustAmp: 0.4, gustFreq: 0.11, turbulence: 1.3, turbScale: 0.7 },
     cloth: { kBase: 13, bendCompliance: 2.8e-3, shearCompliance: 1.2e-3, damping: 1.0, kLift: 0.18, gravity: -0.1 },
     material: { opacity: 0.22, roughness: 0.42, sheen: 1, sheenRoughness: 0.5, iridescence: 0.28, color: '#efe8dc' },
@@ -59,6 +62,7 @@ export const PRESETS = {
   obsidian: {
     label: 'Obsidian',
     note: 'smoked glass in a darker room',
+    photoStyle: 'translucent smoky black glass sculpture, silver veins, inner light, dark museum, black background',
     wind: { speed: 3.4, gustAmp: 0.9, gustFreq: 0.3, turbulence: 2.8, turbScale: 1.2 },
     cloth: { kBase: 6, bendCompliance: 7e-3, shearCompliance: 2.8e-3, damping: 0.45, kLift: 0.42, gravity: -0.18 },
     material: { opacity: 0.12, roughness: 0.55, sheen: 0.9, sheenRoughness: 0.65, iridescence: 0.08, color: '#dcd9d2' },
@@ -76,6 +80,7 @@ export const PRESETS = {
   wandering: {
     label: 'Wandering',
     note: 'the material drifts: stone, ivory, pearl, glass',
+    photoStyle: 'detailed sculpture, carved relief, museum spotlight, black background',
     wind: { speed: 2.8, gustAmp: 0.8, gustFreq: 0.24, turbulence: 2.5, turbScale: 1.1 },
     cloth: { kBase: 7, bendCompliance: 6e-3, shearCompliance: 2.4e-3, damping: 0.5, kLift: 0.35, gravity: -0.15 },
     material: { opacity: 0.14, roughness: 0.5, sheen: 0.95, sheenRoughness: 0.58, iridescence: 0.14, color: '#e4e0d8' },
@@ -92,6 +97,14 @@ export const PRESETS = {
 };
 
 export const PRESET_NAMES = Object.keys(PRESETS);
+
+/** A photo supplies the subject; built-in looks supply only the finish.
+ * Custom prompts are intentional and remain exactly as written. */
+export function promptForReference(prompt, caption = '') {
+  const preset = Object.values(PRESETS).find(p => p.projector.prompt === prompt);
+  if (!preset) return prompt;
+  return `${caption.trim() || 'a detailed sculpture'}, ${preset.photoStyle}`;
+}
 
 /** Parameters that only change pixels in the sculpture's textures, not physics. */
 const TEXTURE_KEYS = ['tintStrength', 'detail', 'figureOpacity', 'veilOpacity'];

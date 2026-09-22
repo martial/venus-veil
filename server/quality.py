@@ -86,6 +86,7 @@ class TorchDepthGenerator:
         self.size = size
         self.prompt = None
         self.previous = None        # last generated image, for carry
+        self.previous_photo = None
         self.anchor = None          # colour of the first frame of a carried chain
         self.hold_colour = True
         self.drift_label = 'base prompt'
@@ -200,6 +201,10 @@ class TorchDepthGenerator:
         end = max(0.2, min(1.0, float(self.defaults['cn_end'] if cn_end is None else cn_end)))
 
         control = Image.fromarray(np.repeat(depth[:, :, None], 3, axis=2), mode='RGB')
+        active_photo = photo if photo_scale > 0 else None
+        if active_photo is not self.previous_photo:
+            self.reset_carry()
+            self.previous_photo = active_photo
         if self.previous is not None and carry > 0 and self.previous.size == control.size:
             init, strength = self.previous, max(0.05, min(1.0, 1.0 - carry))
         else:

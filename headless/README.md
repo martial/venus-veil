@@ -78,6 +78,14 @@ Expose port 5191 in the pod's settings, open the proxy URL RunPod gives you
 (`https://<pod-id>-5191.proxy.runpod.net/?token=...`), and the page will talk to the GPU through
 the same origin. It is the ordinary app: drop a photo, pick a look, watch it move, record a clip.
 
+On the pod, each photo is uploaded once for an IP-Adapter image prompt and a short BLIP
+subject description. Built-in looks use that subject with their material and lighting, rather
+than continuing to request a Venus. Custom expert prompts remain unchanged. Replacing the
+photo clears old projected frames and recording history; the upload starts independently of
+the browser's depth model. The description is an approximation, not an exact identification.
+`python server/fetch_quality.py` fetches the caption model along with the other GPU weights;
+without it, image prompts still work with a subject-neutral text prompt.
+
 Two things to keep in mind. A proxy URL is public to anyone who has it, so pass `--token` and keep
 it out of screenshots; without a token anyone with the link can drive your GPU. And every generated
 frame crosses the internet, which adds roughly 50 to 150 ms per frame — fine for recording, and

@@ -21,7 +21,10 @@ MODELS = [
 
 # The dropped photo as an image prompt (reference.py): the adapter and its CLIP
 # image encoder, ~2.6 GB. Fetched on a server; on a Mac pass --photo.
-PHOTO = [('h94/IP-Adapter', ['models/ip-adapter_sd15.safetensors', 'models/image_encoder/*'])]
+PHOTO = [
+    ('h94/IP-Adapter', ['models/ip-adapter_sd15.safetensors', 'models/image_encoder/*']),
+    ('Salesforce/blip-image-captioning-base', ['*.json', '*.txt', 'pytorch_model.bin']),
+]
 
 if __name__ == '__main__':
     import sys

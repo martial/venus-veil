@@ -310,13 +310,14 @@ def create_app(load=True):
                 if photos is None:
                     import reference
                     photos = reference.ReferenceStore()
-                return photos.add(data)
-            key = await run_in_threadpool(work)
+                key = photos.add(data)
+                return {'id': key, 'caption': photos.describe(key)}
+            result = await run_in_threadpool(work)
         except Exception as error:  # noqa: BLE001
             return Response(f'could not read the photo: {error}', status_code=400)
         finally:
             lock.release()
-        return {'id': key}
+        return result
 
     @app.get('/health')
     async def health():
