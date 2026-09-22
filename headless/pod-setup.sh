@@ -1,6 +1,7 @@
 #!/bin/bash
 # One-time setup on a RunPod GPU pod (any Ubuntu image with an NVIDIA GPU).
-# Everything heavy goes to /workspace, which survives pod restarts.
+# Everything heavy goes to /workspace. Persistence requires a volume mounted
+# there: on container-only storage, resizing/recreating the pod erases it.
 #
 #   curl -fsSL https://raw.githubusercontent.com/martial/venus-veil/main/headless/pod-setup.sh | bash
 set -euo pipefail

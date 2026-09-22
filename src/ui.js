@@ -1,5 +1,6 @@
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 import { IMAGE_ENGINES, modelNote } from './projection/models.js';
+import { applyModelPreset, createModelSettingsBank, modelControlSpecs, MODEL_SETTINGS_NOTES, selectedModelPreset } from './projection/modelSettings.js';
 import { LIVE_PRESETS, PRESETS, applyPreset, resolveLive } from './presets.js';
 import { QUALITIES, RESOLUTIONS } from './record.js';
 
@@ -14,6 +15,8 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
   const context = { wind, solver, material, studio, post, sculpture, projector };
   const state = { look: 'limestone', expert: false };
   const modelViews = [];
+  const settingsViews = [];
+  const recordingDisabled = new Map();
   if (projector) projector.onModels = () => modelViews.forEach(update => update());
   const explainUnavailableModels = controller => {
     const availability = document.createElement('div');
@@ -40,7 +43,40 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
     update();
   };
 
-  const refresh = () => gui.controllersRecursive().forEach(c => c.updateDisplay());
+  const refresh = () => {
+    settingsViews.forEach(update => update());
+    gui.controllersRecursive().forEach(c => c.updateDisplay());
+  };
+  const modelControls = (parent, title, target, changed) => {
+    const controls = parent.addFolder(title);
+    const selection = { preset: selectedModelPreset(target) };
+    const preset = controls.add(selection, 'preset', { Speed: 'speed', Balanced: 'balanced', Detail: 'detail', Custom: 'custom' })
+      .name('model preset').onChange(name => {
+        if (name !== 'custom') { applyModelPreset(target, name); changed(); }
+        refresh();
+      });
+    const description = document.createElement('div');
+    description.className = 'look-note';
+    preset.domElement.after(description);
+    let currentEngine;
+    const update = () => {
+      if (currentEngine !== target.engine) {
+        for (const control of [...controls.controllers]) if (control !== preset) control.destroy();
+        for (const spec of modelControlSpecs(target.engine)) {
+          const control = spec.choices ? controls.add(target, spec.key, spec.choices)
+            : spec.range ? controls.add(target, spec.key, ...spec.range) : controls.add(target, spec.key);
+          control.name(spec.label).onFinishChange(() => { changed(); refresh(); });
+        }
+        description.textContent = MODEL_SETTINGS_NOTES[target.engine];
+        currentEngine = target.engine;
+      }
+      selection.preset = selectedModelPreset(target);
+    };
+    settingsViews.push(update);
+    update();
+    controls.close();
+    return controls;
+  };
 
   // ---------------------------------------------------------------- essentials
   const lookOptions = Object.fromEntries(Object.entries(PRESETS).map(([key, p]) => [p.label, key]));
@@ -86,10 +122,9 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
     explainUnavailableModels(modelController);
     modelViews.push(updateLiveModel);
     updateLiveModel();
+    modelControls(gui, 'Live model settings', projector.params, () => projector.applyModelSettings());
     // how many new images live projection asks for; frames in between crossfade
     gui.add(projector.params, 'maxFps', 1, 60, 1).name('images per second');
-    // the dropped photo as an image prompt (a GPU server with the adapter; no effect elsewhere)
-    gui.add(projector.params, 'reference', 0, 2, 0.05).name('photo in image');
   }
 
   gui.add(wind.params, 'speed', 0, 5, 0.01).name('wind');
@@ -190,24 +225,26 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
   let recordController;
   if (exportSettings) {
     const fExport = gui.addFolder('Export');
+    const exportModel = { engine: exportSettings.engine };
+    const selectExportModel = createModelSettingsBank(exportSettings);
     const engineNote = document.createElement('div');
     engineNote.className = 'look-note';
     engineNote.setAttribute('role', 'status');
     const updateModels = () => {
       engineNote.textContent = modelNote(exportSettings.engine, projector.state);
     };
-    const engineControl = fExport.add(exportSettings, 'engine', IMAGE_ENGINES)
+    const engineControl = fExport.add(exportModel, 'engine', IMAGE_ENGINES)
       .name('image engine').onChange(engine => {
+        selectExportModel(engine);
         // a slow engine wants fewer images: every frame would take hours
         exportSettings.diffusionFps = engine === 'fast' ? exportSettings.fps : engine === 'fine' ? 6 : engine === 'best' ? 2 : 1;
-        exportSettings.steps = 0;
         if (engine !== 'fast' && exportSettings.generated > 512) exportSettings.generated = 512;
-        fExport.controllers.forEach(c => c.updateDisplay());
+        refresh();
         updateModels();
       });
     engineControl.domElement.after(engineNote);
     if (projector) { explainUnavailableModels(engineControl); modelViews.push(updateModels); updateModels(); }
-    fExport.add(exportSettings, 'steps', 0, 40, 1).name('steps (0 = engine default)');
+    modelControls(fExport, 'Export model settings', exportSettings, () => {});
     fExport.add(exportSettings, 'format', { 'MP4 (H.264)': 'mp4', 'WebM (VP9)': 'webm' }).name('format');
     fExport.add(exportSettings, 'resolution', Object.keys(RESOLUTIONS)).name('resolution');
     fExport.add(exportSettings, 'quality', Object.keys(QUALITIES)).name('quality');
@@ -216,7 +253,6 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
     fExport.add(exportSettings, 'seconds', 1, 120, 1).name('duration (s)');
     fExport.add(exportSettings, 'hold', 0, 0.8, 0.05).name('still at start');
     if (projector) {
-      fExport.add(exportSettings, 'generated', [256, 384, 512]).name('generated resolution');
       fExport.add(exportSettings, 'diffusionFps', 1, 60, 1).name('new image per second');
     }
     recordController = fExport.add({ record: () => actions.record() }, 'record').name('record a video');
@@ -236,7 +272,17 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
 
   return {
     gui, state, refresh,
-    setRecording(active) { recordController?.name(active ? 'stop recording' : 'record a video'); },
+    setRecording(active) {
+      recordController?.name(active ? 'stop recording' : 'record a video');
+      // Export temporarily uses the projector's parameters. Prevent edits from
+      // changing the model halfway through a recording or being lost on restore.
+      for (const control of gui.controllersRecursive()) {
+        if (control === recordController) continue;
+        if (active) { recordingDisabled.set(control, control._disabled); control.disable(); }
+        else if (!recordingDisabled.get(control)) control.enable();
+      }
+      if (!active) recordingDisabled.clear();
+    },
     folders: { fWind, fCloth, fSurf, fLight, fSculpt, fProject, fActions },
     applyLook(name) { state.look = name; applyPreset(name, context); note.textContent = PRESETS[name].note; refresh(); },
   };

@@ -5,6 +5,7 @@ import { createReferenceUpload } from './reference.js';
 import { createLiveTransport } from './liveTransport.js';
 import { createLiveClock } from './liveClock.js';
 import { recordProjectedFrame } from './recording.js';
+import { createModelSettingsBank, isAdvancedModel, modelSettings } from './modelSettings.js';
 
 /**
  * Live projection: the veil's depth, seen from a projector at the viewer, goes
@@ -88,6 +89,7 @@ export const PROJECTOR_DEFAULTS = {
   live: 'auto',        // real-time preset (LIVE_PRESETS): resolution and rate of live projection
   reference: 1,        // how strongly the dropped photo shows in the image, where the service takes it (0 = not at all)
   inFlight: 0,         // requests on the wire at once; 0 = 1 on this machine, enough for the rate across the internet
+  ...modelSettings('fast'),
 };
 
 const MAX_IN_FLIGHT = 12;
@@ -96,6 +98,7 @@ const MODE_LABELS = { woven: 'woven into fabric', projector: 'physical projector
 
 export function createProjector({ renderer, scene, viewer, solver, ribbon, material, stepFrame, elements = {}, toast = () => {} }) {
   const params = { ...PROJECTOR_DEFAULTS };
+  const selectModelSettings = createModelSettingsBank(params);
   const sequence = crypto.randomUUID();
   const u = material.userData.uniforms;
   const geometry = ribbon.geometry;
@@ -347,6 +350,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     state.liveApplied = resolved;
     params.maxFps = preset.maxFps;
     const size = pickSize(preset.size, state.sizes);
+    if (!isAdvancedModel(params.engine)) params.modelSize = size;
     if (size !== params.size) { setSize(size); clearSlots(); }
     api.onLive?.(resolved, preset);
     return resolved;
@@ -359,9 +363,8 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     }
     clearSlots();
     transport.close();
-    params.engine = name;
-    params.steps = 0;
-    params.cfg = null;
+    selectModelSettings(name);
+    applyModelSettings();
     params.mode = 'woven';
     state.resetCarry = true;
     state.fps = 0;
@@ -374,6 +377,23 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     reportTick = 0;
     report();
     return true;
+  }
+
+  function applyModelSettings() {
+    clearSlots();
+    state.resetCarry = true;
+    const advanced = isAdvancedModel(params.engine);
+    const size = pickSize(advanced ? 512 : params.modelSize, state.sizes);
+    if (!advanced) params.modelSize = size;
+    if (size !== params.size) setSize(size);
+    // Keep the existing live resolution selector in sync with model presets.
+    const live = Object.keys(LIVE_PRESETS).find(key => LIVE_PRESETS[key].size === size);
+    if (live) {
+      params.live = live;
+      state.liveApplied = live;
+      api.onLive?.(live, LIVE_PRESETS[live]);
+    }
+    bindSlots();
   }
 
   // ------------------------------------------------------------ the dropped photo
@@ -446,6 +466,8 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
         engine: params.engine,
         steps: params.steps || undefined,
         cfg: params.cfg ?? undefined,
+        negative: params.negative || undefined,
+        render_size: isAdvancedModel(params.engine) ? params.modelSize : undefined,
         carry: params.carry,
         cn_scale: params.cnScale || undefined,
         reset: state.resetCarry || undefined,
@@ -691,22 +713,9 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     folder.add(params, 'wander').name('material wandering');
     folder.add(params, 'drift', 0, 1, 0.01).name('wander amount');
     folder.add(params, 'wanderSpeed', 0, 1, 0.01).name('wander speed');
-    folder.add(params, 'guidance', 0.3, 2, 0.01).name('edge strength');
     folder.add(params, 'emphasis', 0, 1, 0.01).name('sculpture in depth map');
-    folder.add(params, 'carry', 0, 0.9, 0.05).name('carry previous frame');
     folder.add(params, 'upright').name('figure upright for model');
-    folder.add(params, 'size', [256, 384, 512, 768]).name('generated resolution').onChange(value => {
-      const n = Number(value);
-      if (!state.sizes.includes(n)) {
-        toast(`the service has no ${n} px model · npm run projector:setup -- --sizes ${n}`);
-        params.size = state.sizes[state.sizes.length - 1];
-        folder.controllers.forEach(c => c.updateDisplay());
-      }
-      setSize(params.size);
-      clearSlots();
-    });
     folder.add(params, 'physicsRelief', 0, 1, 0.01).name('sculpture in physics').onChange(applyPhysicsRelief);
-    folder.add(params, 'seed', 0, 9999, 1).name('seed');
     folder.add(params, 'power', 0, 4, 0.01).name('brightness').onChange(bindSlots);
     folder.add(params, 'catch', 0, 1, 0.01).name('fabric catch').onChange(bindSlots);
     folder.add(params, 'blendMs', 0, 400, 1).name('frame blend (ms)');
@@ -721,7 +730,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
   setSize(params.size);
 
   const api = {
-    params, state, camera, buildControls, setEnabled, update, health, clearSlots, setSize, applyLive, setReference, setEngine,
+    params, state, camera, buildControls, setEnabled, update, health, clearSlots, setSize, applyLive, setReference, setEngine, applyModelSettings,
     onLive: null,       // (name, preset) => void, when the real-time preset is applied
     /** Re-apply params that were changed in bulk (a look preset). */
     refresh() { bindSlots(); applySurface(); applyPhysicsRelief(); report(); },

@@ -60,7 +60,9 @@ bash /workspace/venus-veil/headless/pod-start.sh
 ```
 
 Setup installs Node, ffmpeg, the Python packages and headless Chromium, builds the app and fetches
-the weights into `/workspace`, so it all survives a pod restart. Start prints the web address with
+the weights into `/workspace`. This persists only when `/workspace` is backed by a mounted volume;
+container disk can be erased by a resize or container recreation. Back up the app token and model
+cache before changing that disk. Start prints the web address with
 its token. Expose HTTP port 5191 in the pod settings for the web page.
 
 ## Using it from your own browser, with the GPU on the pod

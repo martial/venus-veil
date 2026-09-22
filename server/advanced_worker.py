@@ -78,7 +78,9 @@ class AdvancedGenerator:
         loaded = time.perf_counter()
         # These models were trained at larger image sizes. Generate detail there,
         # then downsample to the projector's requested texture size.
-        size = max(768, depth.shape[0])
+        size = frame.get('render_size') or 768
+        if size not in (512, 768, 1024):
+            raise ValueError('Model resolution must be 512, 768 or 1024.')
         control = Image.fromarray(depth).convert('RGB').resize((size, size), Image.Resampling.BICUBIC)
         steps = frame.get('steps') or ENGINES[name]['steps']
         args = dict(prompt=frame['prompt'], height=size, width=size, num_inference_steps=steps,

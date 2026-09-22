@@ -27,6 +27,17 @@ class AdvancedRoutingTest(unittest.TestCase):
             frame, _ = server.parse_frame(pack({'engine': name, 'size': 256}, bytes(256 * 256)))
             self.assertEqual(frame['engine'], name)
 
+    def test_model_controls_survive_frame_protocol_and_resolution_is_bounded(self):
+        for requested, expected in ((512, 512), (1024, 1024), (999999, 1024), (-5, 512)):
+            frame, _ = server.parse_frame(pack({'engine': 'sdxl', 'size': 256,
+                'render_size': requested, 'cfg': 0, 'cn_scale': 1.2, 'reference_scale': 0.4,
+                'negative': 'plastic'}, bytes(256 * 256)))
+            self.assertEqual(frame['render_size'], expected)
+            self.assertEqual(frame['cfg'], 0)
+            self.assertEqual(frame['cn_scale'], 1.2)
+            self.assertEqual(frame['reference_scale'], 0.4)
+            self.assertEqual(frame['negative'], 'plastic')
+
     def test_unavailable_model_does_not_silently_use_live_engine(self):
         import advanced_client
         with patch.object(advanced_client, 'models', return_value={'flux': {'label': 'FLUX', 'available': False, 'reason': 'Need weights'}}):

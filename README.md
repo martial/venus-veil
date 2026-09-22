@@ -1,5 +1,12 @@
 # Venus Veil
 
+Model tuning is available in **Live model settings** and **Export → Export model settings**.
+Each model has **Speed**, **Balanced**, and **Detail** presets, plus editable controls for
+the parameters it supports. Switching models remembers each model's custom values for the
+current session; live and export settings are separate. Resolution changes speed/detail;
+SDXS stays at one step and SDXL Hyper / FLUX.2 Klein stay at four steps. DreamShaper and
+FLUX.1 Depth also expose step count. Export restores the live settings when it finishes.
+
 A translucent veil hovering in a dark studio, fluttering in wind. Drop a photo of a
 prehistoric Venus figurine and the veil takes its shape: the depth map is estimated
 in the browser, turned into a fabric texture, and used as a physics constraint so the

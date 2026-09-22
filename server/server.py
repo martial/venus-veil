@@ -111,6 +111,7 @@ def parse_frame(body, allowed_sizes=(128, 192, 256, 384, 512)):
         'engine': meta.get('engine') if meta.get('engine') in ENGINES else 'fast',
         'cn_scale': max(0.2, min(1.6, float(meta['cn_scale']))) if meta.get('cn_scale') is not None else None,
         'steps': max(1, min(60, int(meta.get('steps') or 0))) if meta.get('steps') else None,
+        'render_size': min((512, 768, 1024), key=lambda n: abs(n - int(meta.get('render_size') or 768))),
         'cfg': max(0., min(15., float(meta['cfg']))) if meta.get('cfg') is not None else None,
         'carry': max(0., min(0.95, float(meta['carry']))) if meta.get('carry') is not None else None,
         'negative': str(meta.get('negative'))[:600] if meta.get('negative') else None,

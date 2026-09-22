@@ -15,6 +15,7 @@ import { cameraAngle, clockText, createFrameWriter, createVideoRecorder, diffusi
 import { createSculpturePipeline } from './pipeline/sculpture.js';
 import { createProjector } from './projection/projector.js';
 import { startActivity } from './activity.js';
+import { isAdvancedModel, modelSettings, snapshotModelSettings } from './projection/modelSettings.js';
 
 const $ = id => document.getElementById(id);
 
@@ -146,7 +147,7 @@ async function start() {
   const exportSettings = {
     fps: 60, seconds: 32, resolution: '3840 × 2160', generated: 512,
     format: 'mp4', quality: 'master', diffusionFps: 8, orbit: 40, hold: 0.2,
-    engine: 'fast', steps: 0,
+    engine: 'fast', ...modelSettings('fast', 'detail'),
   };
   // measured cost per generated frame, so the estimate is honest about this machine
   const ENGINE_COST_MS = { fast: 150, fine: 11000, best: 32000, sdxl: 2000, klein: 3000, flux: 15000 };
@@ -181,7 +182,7 @@ async function start() {
     const settings = { ...exportSettings };
     const plan = exportPlan(settings);
     const target = RESOLUTIONS[settings.resolution];
-    const generated = Number(settings.generated);
+    const generated = Number(isAdvancedModel(settings.engine) ? settings.generated : settings.modelSize);
     const before = {
       samples: post.params.samples,
       pixelRatio: renderer.getPixelRatio(),
@@ -191,7 +192,7 @@ async function start() {
       running: projector.params.running,
       priority: projector.params.priority,
       engine: projector.params.engine,
-      steps: projector.params.steps,
+      modelSettings: snapshotModelSettings(projector.params),
       generated: projector.params.size,
       aspect: camera.aspect,
     };
@@ -215,7 +216,7 @@ async function start() {
       projector.params.running = false;
       projector.params.priority = true;
       projector.params.engine = settings.engine;
-      projector.params.steps = settings.steps;
+      Object.assign(projector.params, snapshotModelSettings(settings));
       renderer.setAnimationLoop(null);
       stopped = true;
       quality.params.auto = false;
@@ -291,11 +292,13 @@ async function start() {
       projector.params.running = before.running;
       projector.params.priority = before.priority;
       projector.params.engine = before.engine;
-      projector.params.steps = before.steps;
+      Object.assign(projector.params, before.modelSettings);
       if (projector.params.size !== before.generated) {
         projector.setSize(before.generated);
-        projector.clearSlots();
       }
+      projector.clearSlots();
+      projector.state.resetCarry = true;
+      ui.refresh();
       if (stopped) {
         post.params.samples = before.samples;
         renderer.setPixelRatio(before.pixelRatio);
