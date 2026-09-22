@@ -96,6 +96,7 @@ const MODE_LABELS = { woven: 'woven into fabric', projector: 'physical projector
 
 export function createProjector({ renderer, scene, viewer, solver, ribbon, material, stepFrame, elements = {}, toast = () => {} }) {
   const params = { ...PROJECTOR_DEFAULTS };
+  const sequence = crypto.randomUUID();
   const u = material.userData.uniforms;
   const geometry = ribbon.geometry;
   const indices = geometry.index.array;
@@ -330,6 +331,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
    * (30 a second over 300 ms is 9, capped at 8).
    */
   function inFlightLimit() {
+    if (params.engine !== 'fast') return 1; // expensive models get the newest pose only, never a backlog
     if (params.mode === 'locked' || params.priority) return 1;     // one pose per image, or a recording
     if (params.inFlight) return Math.max(1, Math.min(MAX_IN_FLIGHT, params.inFlight));
     if (wireFormat(state.endpoint) !== 'jpeg') return 1;
@@ -348,6 +350,30 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     if (size !== params.size) { setSize(size); clearSlots(); }
     api.onLive?.(resolved, preset);
     return resolved;
+  }
+
+  function setEngine(name) {
+    if (!state.engines.includes(name)) {
+      toast(state.models[name]?.reason || 'This model is unavailable on the connected service.', 6000);
+      return false;
+    }
+    clearSlots();
+    transport.close();
+    params.engine = name;
+    params.steps = 0;
+    params.cfg = null;
+    params.mode = 'woven';
+    state.resetCarry = true;
+    state.fps = 0;
+    state.error = null;
+    state.driftLabel = name;
+    state.roundTripMs = 0;
+    lastRequest = 0;
+    liveClock.reset();
+    bindSlots();
+    reportTick = 0;
+    report();
+    return true;
   }
 
   // ------------------------------------------------------------ the dropped photo
@@ -412,7 +438,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       const frameId = ++state.requested;
       const referenceId = params.reference > 0 ? state.referenceId : null;
       const body = packFrame({
-        frame_id: frameId, size: params.size,
+        frame_id: frameId, size: params.size, sequence,
         prompt: referenceId ? promptForReference(params.prompt, state.referenceCaption) : params.prompt,
         seed: params.seed,
         guidance: params.guidance, drift: params.wander ? params.drift : 0, drift_phase: state.driftPhase,
@@ -630,7 +656,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
   function report() {
     const el = elements.status;
     if (!el) return;
-    if (++reportTick % 4 !== 0 && state.status === 'ready' && !state.error && !state.referenceError && state.referenceStatus !== 'uploading') return;
+    if (++reportTick % (params.engine === 'fast' ? 4 : 1) !== 0 && state.status === 'ready' && !state.error && !state.referenceError && state.referenceStatus !== 'uploading') return;
     let text;
     if (state.referenceError && params.reference > 0) text = `photo upload failed · ${state.referenceError} · retrying`;
     else if (state.referenceStatus === 'uploading' && params.reference > 0) text = 'reading the new photo…';
@@ -641,10 +667,12 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     else if (state.status === 'error') text = 'projector failed to load · see server log';
     else if (params.show === 'grid') text = 'calibration grid · live occlusion';
     else if (!params.running) text = `held · frame ${state.presented}`;
+    else if (params.engine !== 'fast' && state.fps === 0) text = `${params.engine} · preparing the first image…`;
     else text = `${MODE_LABELS[params.mode]} · ${state.fps.toFixed(1)} generated fps · ${Math.round(state.latencyMs)} ms · ${state.driftLabel}`;
     el.textContent = text;
     el.dataset.transport = state.transport;
     el.dataset.inferenceMs = String(state.inferenceMs);
+    el.dataset.engine = params.engine;
     if (elements.outputLabel) elements.outputLabel.textContent = state.presented ? `output · frame ${state.presented}` : 'output';
   }
 
@@ -693,7 +721,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
   setSize(params.size);
 
   const api = {
-    params, state, camera, buildControls, setEnabled, update, health, clearSlots, setSize, applyLive, setReference,
+    params, state, camera, buildControls, setEnabled, update, health, clearSlots, setSize, applyLive, setReference, setEngine,
     onLive: null,       // (name, preset) => void, when the real-time preset is applied
     /** Re-apply params that were changed in bulk (a look preset). */
     refresh() { bindSlots(); applySurface(); applyPhysicsRelief(); report(); },

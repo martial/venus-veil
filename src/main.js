@@ -280,7 +280,7 @@ async function start() {
       }
       const blob = recorder.finish ? await recorder.finish() : await recorder.stop();
       saved = true;
-      const name = `venus-veil-${ui.state.look}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.${recorder.extension}`;
+      const name = `venus-veil-${settings.engine}-${ui.state.look}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.${recorder.extension}`;
       offerBlob(blob, name, $('clip-link'));
       showProgress(`saved ${name} · ${(blob.size / 1e6).toFixed(1)} MB`, 100);
       toast(recording.cancel ? 'recording stopped, partial clip saved' : `recorded ${plan.frames} frames`);

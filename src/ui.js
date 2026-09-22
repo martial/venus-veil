@@ -13,6 +13,8 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
   gui.domElement.classList.add('veil-gui');
   const context = { wind, solver, material, studio, post, sculpture, projector };
   const state = { look: 'limestone', expert: false };
+  const modelViews = [];
+  if (projector) projector.onModels = () => modelViews.forEach(update => update());
 
   const refresh = () => gui.controllersRecursive().forEach(c => c.updateDisplay());
 
@@ -42,6 +44,28 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
       .onChange(name => { projector.applyLive(name); refresh(); });
     liveController.domElement.parentElement.insertBefore(liveNote, liveController.domElement.nextSibling);
     projector.onLive = resolved => { describe(resolved); refresh(); };
+    const liveModel = { engine: projector.params.engine };
+    const modelController = gui.add(liveModel, 'engine', IMAGE_ENGINES).name('live model')
+      .onChange(name => {
+        if (recording?.active || !projector.setEngine(name)) liveModel.engine = projector.params.engine;
+        updateLiveModel();
+        refresh();
+      });
+    const modelDescription = document.createElement('div');
+    modelDescription.className = 'look-note';
+    modelController.domElement.after(modelDescription);
+    const updateLiveModel = () => {
+      const name = liveModel.engine;
+      modelDescription.textContent = name === 'fast' ? 'Fast live generation. The scene and image update together.'
+        : `${modelNote(name, projector.state)} New images arrive at the model’s measured speed; the cloth keeps moving.`;
+      for (const option of modelController.domElement.querySelectorAll('option')) {
+        const engine = IMAGE_ENGINES[option.textContent];
+        option.disabled = !projector.state.engines.includes(engine);
+        option.title = projector.state.models?.[engine]?.reason || '';
+      }
+    };
+    modelViews.push(updateLiveModel);
+    updateLiveModel();
     // how many new images live projection asks for; frames in between crossfade
     gui.add(projector.params, 'maxFps', 1, 60, 1).name('images per second');
     // the dropped photo as an image prompt (a GPU server with the adapter; no effect elsewhere)
@@ -165,7 +189,7 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
         updateModels();
       });
     engineControl.domElement.after(engineNote);
-    if (projector) { projector.onModels = updateModels; updateModels(); }
+    if (projector) { modelViews.push(updateModels); updateModels(); }
     fExport.add(exportSettings, 'steps', 0, 40, 1).name('steps (0 = engine default)');
     fExport.add(exportSettings, 'format', { 'MP4 (H.264)': 'mp4', 'WebM (VP9)': 'webm' }).name('format');
     fExport.add(exportSettings, 'resolution', Object.keys(RESOLUTIONS)).name('resolution');

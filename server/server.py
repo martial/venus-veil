@@ -62,6 +62,7 @@ generator = None          # the fast engine (Core ML on a Mac, PyTorch on a serv
 photos = None             # dropped photos as image prompts (reference.py), on a server
 quality = None            # the multi-step engine, loaded on demand
 last_quality_use = 0.0
+quality_sequence = None
 
 
 class FrameError(ValueError):
@@ -114,6 +115,7 @@ def parse_frame(body, allowed_sizes=(128, 192, 256, 384, 512)):
         'carry': max(0., min(0.95, float(meta['carry']))) if meta.get('carry') is not None else None,
         'negative': str(meta.get('negative'))[:600] if meta.get('negative') else None,
         'reset': bool(meta.get('reset')),
+        'sequence': str(meta.get('sequence') or '')[:64],
         # the dropped photo, by the id /reference gave it, and how strongly it shows
         'reference': meta['reference'] if isinstance(meta.get('reference'), str)
                      and REFERENCE_ID.fullmatch(meta['reference']) else None,
@@ -353,6 +355,7 @@ def create_app(load=True):
         # requests on the wire, and they arrive a few milliseconds apart.
         try:
             def work():
+                global quality_sequence
                 import numpy as np
                 engine = use_engine(frame['engine'], preset_reset=frame['reset'])
                 depth = np.frombuffer(pixels, dtype=np.uint8).reshape(frame['size'], frame['size'])
@@ -371,6 +374,11 @@ def create_app(load=True):
                     rgb, stages = engine.generate(depth, frame['prompt'], frame['seed'], frame['guidance'],
                                                   frame['drift'], frame['drift_phase'], **with_photo)
                 else:
+                    # Browsers share the GPU, but must not inherit another
+                    # browser's previous image when using img2img carry.
+                    if quality_sequence != frame['sequence']:
+                        engine.reset_carry()
+                        quality_sequence = frame['sequence']
                     # a live frame on a box without Core ML: the multi-step engine stands in,
                     # at the few steps LCM needs, so live projection keeps moving
                     steps = frame['steps'] or (LIVE_STEPS if frame['engine'] == 'fast' else None)
@@ -403,7 +411,8 @@ def create_app(load=True):
             'X-Frame-Id': str(frame['frame_id']),
             'X-Inference-Ms': str(stages['total_ms']),
             'X-Engine': frame['engine'],
-            'X-Drift-Label': getattr(engine_object, 'drift_label', frame['engine']),
+            'X-Drift-Label': (ADVANCED_ENGINES[frame['engine']]['label'].replace('·', '/') if frame['engine'] in ADVANCED_ENGINES
+                              else getattr(engine_object, 'drift_label', frame['engine'])),
             'X-Stages': json.dumps(stages),
             'Cache-Control': 'no-store',
         })

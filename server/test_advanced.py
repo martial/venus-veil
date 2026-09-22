@@ -9,6 +9,19 @@ from test_server import pack
 
 
 class AdvancedRoutingTest(unittest.TestCase):
+    def test_different_browsers_do_not_carry_each_others_images(self):
+        engine = Mock()
+        engine.generate.return_value = (np.zeros((256, 256, 3), dtype=np.uint8), {'total_ms': 100})
+        with patch.dict(server.state, status='ready', engine='fine', sizes=[256]), \
+                patch.object(server, 'quality_sequence', None), patch.object(server, 'photos', None), \
+                patch.object(server, 'use_engine', return_value=engine):
+            client = TestClient(server.create_app(load=False))
+            for sequence in ('browser-a', 'browser-a', 'browser-b', 'browser-a'):
+                response = client.post('/generate', content=pack(
+                    {'engine': 'fine', 'size': 256, 'sequence': sequence}, bytes(256 * 256)))
+                self.assertEqual(response.status_code, 200)
+        self.assertEqual(engine.reset_carry.call_count, 3)
+
     def test_optional_engines_are_preserved_in_frame_protocol(self):
         for name in ('sdxl', 'klein', 'flux'):
             frame, _ = server.parse_frame(pack({'engine': name, 'size': 256}, bytes(256 * 256)))
