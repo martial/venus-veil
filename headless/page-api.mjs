@@ -26,7 +26,7 @@ window.__veilHeadless = (() => {
         fps: settings.fps, interval: settings.interval, frames: settings.frames,
         orbit: settings.orbit, hold: settings.hold,
       });
-      projector.params.engine = settings.engine;
+      if (!projector.setEngine(settings.engine)) throw new Error('Requested image model is unavailable');
       projector.params.steps = settings.steps || 0;
       projector.params.seed = settings.seed;
       projector.params.carry = settings.carry;

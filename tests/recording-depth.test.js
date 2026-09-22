@@ -44,6 +44,7 @@ test('headless export freezes the live clock and waits for depth before recordin
     projector: {
       params: { size: 512, enabled: true }, state: { status: 'ready', presented: 0 },
       async prepareRecording() { assert.equal(live, false); },
+      setEngine(engine) { this.params.engine = engine; return true; },
       async recordFrame() {
         depths.push(pose);
         await imageReady;
