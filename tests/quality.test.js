@@ -38,3 +38,11 @@ test('manual mode and junk samples change nothing', () => {
   assert.equal(q.sample(5000), false);
   assert.ok(q.params.frameMs > 0);
 });
+
+test('quality can recover on a 60 Hz display without needing impossible 75 fps', () => {
+  const q = createQuality({ maxScale: 1, floor: 48, target: 60 });
+  q.reset(0.55, 2);
+  feed(q, 1000 / 60, 1600);
+  assert.equal(q.params.level, 0);
+  assert.equal(q.params.scale, 1);
+});

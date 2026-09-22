@@ -12,6 +12,7 @@ import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
+import { attachLive } from './live.mjs';
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -43,14 +44,16 @@ async function proxy(request, response, service, url) {
 }
 
 export async function serveDirectory(root, port = 5191, { service = '', token = '', host = '127.0.0.1' } = {}) {
+  const authorized = (request, url) => {
+    const cookie = /(?:^|;\s*)venus_token=([^;]+)/.exec(request.headers.cookie || '')?.[1];
+    return !token || (url.searchParams.get('token') || request.headers['x-venus-token'] || cookie) === token;
+  };
   const server = http.createServer(async (request, response) => {
     try {
       const url = new URL(request.url, 'http://localhost');
       const cookieHeaders = {};
       if (token) {
-        const cookie = /(?:^|;\s*)venus_token=([^;]+)/.exec(request.headers.cookie || '')?.[1];
-        const offered = url.searchParams.get('token') || request.headers['x-venus-token'] || cookie;
-        if (offered !== token) {
+        if (!authorized(request, url)) {
           response.writeHead(401, { 'Content-Type': 'text/plain' }).end('this renderer is protected: open it with ?token=…');
           return;
         }
@@ -83,15 +86,17 @@ export async function serveDirectory(root, port = 5191, { service = '', token = 
       response.writeHead(500).end(String(error.message));
     }
   });
+  const closeLive = attachLive(server, { service, authorized });
   await new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, host, resolve);
   });
+  port = server.address().port;
   return {
     port,
     host,
     url: `http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${port}`,
-    close: () => new Promise(resolve => server.close(resolve)),
+    close: () => { closeLive(); return new Promise(resolve => server.close(resolve)); },
   };
 }
 

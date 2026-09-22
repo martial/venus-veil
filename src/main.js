@@ -29,7 +29,7 @@ async function start() {
   const viewport = $('viewport');
   const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', alpha: false });
   const baseDpr = Math.min(window.devicePixelRatio || 1, 2);
-  const quality = createQuality({ maxScale: 1, floor: 24, target: 50 });
+  const quality = createQuality({ maxScale: 1, floor: 48, target: 60 });
   renderer.setPixelRatio(baseDpr);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.1;

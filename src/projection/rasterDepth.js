@@ -174,6 +174,7 @@ export function buildStructure(raster, { emphasis = 0, floor = 30 } = {}) {
 export function downsampleGray(src, srcSize, dst, dstSize) {
   const factor = srcSize / dstSize;
   if (!Number.isInteger(factor)) throw new Error('downsampleGray needs an integer factor');
+  if (factor === 1) { dst.set(src); return dst; }
   for (let y = 0; y < dstSize; y++) {
     for (let x = 0; x < dstSize; x++) {
       let sum = 0, n = 0;
@@ -201,6 +202,19 @@ export function downsampleGray(src, srcSize, dst, dstSize) {
  * flipping vertically conjugates a quarter turn into its opposite.
  */
 export function rotateQuarter(src, size, dst, channels = 1) {
+  // Copy RGBA pixels as words, rather than four JS channel iterations each.
+  if (channels === 4 && src.byteOffset % 4 === 0 && dst.byteOffset % 4 === 0) {
+    rotateQuarter(new Uint32Array(src.buffer, src.byteOffset, size * size), size,
+      new Uint32Array(dst.buffer, dst.byteOffset, size * size));
+    return dst;
+  }
+  if (channels === 1) {
+    for (let y = 0; y < size; y++) {
+      let from = (size - 1) * size + y, to = y * size;
+      for (let x = 0; x < size; x++, from -= size) dst[to++] = src[from];
+    }
+    return dst;
+  }
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const from = ((size - 1 - x) * size + y) * channels;

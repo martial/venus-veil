@@ -159,9 +159,9 @@ export function applyPreset(name, ctx = {}) {
 export const LIVE_PRESETS = {
   auto: { label: 'auto', note: 'chosen for the service: fluid on this Mac, sharp on a GPU server' },
   fluid: { label: 'fluid', note: '256 px · as many images a second as the service makes', size: 256, maxFps: 60 },
-  balanced: { label: 'balanced', note: '384 px · 30 images a second', size: 384, maxFps: 30 },
-  sharp: { label: 'sharp', note: '512 px · 30 images a second', size: 512, maxFps: 30 },
-  detail: { label: 'max detail', note: '768 px · 20 images a second · GPU server', size: 768, maxFps: 20 },
+  balanced: { label: 'balanced', note: '384 px · up to 60 images a second', size: 384, maxFps: 60 },
+  sharp: { label: 'sharp', note: '512 px · up to 60 images a second', size: 512, maxFps: 60 },
+  detail: { label: 'max detail', note: '768 px · up to 30 images a second · GPU server', size: 768, maxFps: 30 },
 };
 
 /** The concrete preset behind a name: 'auto' asks what the service runs on. */

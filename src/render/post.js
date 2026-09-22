@@ -48,6 +48,7 @@ export function createPost(renderer, scene, camera) {
   const size = renderer.getSize(new THREE.Vector2());
   const target = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: params.samples });
   const composer = new EffectComposer(renderer, target);
+  let pixelRatio = renderer.getPixelRatio();
   composer.addPass(new RenderPass(scene, camera));
   const bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), params.bloomStrength, params.bloomRadius, params.bloomThreshold);
   composer.addPass(bloom);
@@ -74,7 +75,12 @@ export function createPost(renderer, scene, camera) {
 
   return {
     params, composer, bloom, grain, apply,
-    setSize(w, h) { composer.setSize(w, h); },
+    setSize(w, h) {
+      // The composer keeps its own DPR. Updating only the renderer left all
+      // bloom/scene targets at full resolution while adaptive quality said 55%.
+      if (pixelRatio !== renderer.getPixelRatio()) { pixelRatio = renderer.getPixelRatio(); composer.setPixelRatio(pixelRatio); }
+      composer.setSize(w, h);
+    },
     render(time) { grain.uniforms.uTime.value = time; composer.render(); },
     dispose() { composer.dispose(); bloom.dispose(); target.dispose(); },
   };

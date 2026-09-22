@@ -6,6 +6,7 @@ the same edges traced from depth. Live projection therefore looks the same on a
 pod as on the Mac, and a server card makes a frame in tens of milliseconds.
 """
 import gc
+import os
 import time
 from pathlib import Path
 
@@ -61,6 +62,8 @@ class TorchSketchGenerator:
             self.no_reference = torch.zeros(1, 1, 1024, device=device, dtype=self.dtype)
         for module in (self.unet, self.control, self.decoder, self.encoder):
             module.to(device, self.dtype).eval()
+        for module in (self.unet, self.control, self.decoder):
+            module.to(memory_format=torch.channels_last)
         config = EulerDiscreteScheduler.from_pretrained(MODEL, subfolder='scheduler', cache_dir=CACHE).config
         betas = np.linspace(config['beta_start'] ** .5, config['beta_end'] ** .5,
                             config['num_train_timesteps'], dtype=np.float32) ** 2
@@ -73,6 +76,10 @@ class TorchSketchGenerator:
         self.banks = {}              # prompt -> embeddings, a few kept: two viewers need not re-encode in turn
         self.seed = None
         self.drift_label = 'base prompt'
+        self.live_graph = None
+        if device == 'cuda' and os.environ.get('VENUS_CUDA_GRAPH', '1') != '0':
+            from live_graph import LiveGraph
+            self.live_graph = LiveGraph(self)
 
     @property
     def sizes(self):
@@ -124,8 +131,23 @@ class TorchSketchGenerator:
             self.noise = torch.from_numpy(noise).to(self.device)
             self.seed = seed
 
+        if self.live_graph is not None:
+            try:
+                output = self.live_graph.run(depth, text, self.noise, photo, photo_scale, guidance)
+                return output, {
+                    'prompt_ms': round((encoded - started) * 1000, 1),
+                    'total_ms': round((time.perf_counter() - started) * 1000, 1),
+                    'cuda_graph': True,
+                }
+            except RuntimeError as error:
+                # A card/driver without graph support keeps serving with the
+                # original path. Never repeat a failing capture every frame.
+                self.live_graph.close()
+                self.live_graph = None
+                print(f'live CUDA graph disabled: {error}', flush=True)
+
         with torch.inference_mode():
-            gray = torch.from_numpy(depth).to(self.device).float() / 255
+            gray = torch.from_numpy(depth.copy()).to(self.device).float() / 255
             structure = sketch_edges(gray, guidance)[None, None].expand(1, 3, -1, -1).to(self.dtype)
             sample = self.noise.to(self.dtype)
             prepared = time.perf_counter()
@@ -160,6 +182,9 @@ class TorchSketchGenerator:
         return output, stages
 
     def unload(self):
+        if self.live_graph is not None:
+            self.live_graph.close()
+            self.live_graph = None
         self.unet = self.control = self.decoder = self.encoder = None
         gc.collect()
         torch.cuda.empty_cache()

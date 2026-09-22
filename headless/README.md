@@ -86,6 +86,21 @@ the browser's depth model. The description is an approximation, not an exact ide
 `python server/fetch_quality.py` fetches the caption model along with the other GPU weights;
 without it, image prompts still work with a subject-neutral text prompt.
 
+Live projection uses an authenticated WebSocket on the same port, with HTTP fallback if a
+proxy cannot upgrade the connection. Each connection keeps one inference and the newest
+waiting pose; intermediate poses are skipped rather than queued. Recordings keep the ordered
+HTTP path. The one-step CUDA engine replays a graph per resolution, with fresh depth, photo,
+text and seed inputs each time. `VENUS_CUDA_GRAPH=0` restores eager execution for diagnostics.
+
+To measure sustained delivery from your own connection (the credential is never printed):
+
+```
+node scripts/bench-live.mjs --endpoint https://<pod-id>-8888.proxy.runpod.net/projector --token-file /path/to/token
+```
+
+The image-rate setting is a target, limited by display cadence and service/network capacity.
+The FPS counter measures arrivals over time, so simultaneous replies cannot inflate it.
+
 Two things to keep in mind. A proxy URL is public to anyone who has it, so pass `--token` and keep
 it out of screenshots; without a token anyone with the link can drive your GPU. And every generated
 frame crosses the internet, which adds roughly 50 to 150 ms per frame — fine for recording, and

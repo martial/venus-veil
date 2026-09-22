@@ -39,7 +39,8 @@ export function createQuality({ maxScale = 1, floor = 24, target = 50, minScale 
       cooldown = windowFrames;
       return true;
     }
-    if (fps > params.target * 1.25) {
+    // A 60 Hz display cannot report 75 fps: recover when it holds the target.
+    if (fps > params.target * 0.97) {
       if (params.level > 0) params.level--;
       else if (params.scale < params.maxScale - 1e-3) params.scale = Math.min(params.maxScale, params.scale * 1.08);
       else return false;

@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { createDepthRaster, rasterDepth, buildStructure, downsampleGray, rotateQuarter, packFrame } from './rasterDepth.js';
 import { LIVE_PRESETS, pickSize, resolveLive, promptForReference } from '../presets.js';
 import { createReferenceUpload } from './reference.js';
+import { createLiveTransport } from './liveTransport.js';
+import { createLiveClock } from './liveClock.js';
 
 /**
  * Live projection: the veil's depth, seen from a projector at the viewer, goes
@@ -42,18 +44,6 @@ export function wireFormat(endpoint) {
 async function gzipped(bytes) {
   const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'));
   return new Uint8Array(await new Response(stream).arrayBuffer());
-}
-
-let decodeCanvas = null;
-/** A JPEG answer back to the same bytes an RGBA answer carries (rows already bottom-up). */
-async function decodeFrame(blob, size) {
-  const bitmap = await createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
-  decodeCanvas ||= new OffscreenCanvas(size, size);
-  if (decodeCanvas.width !== size) decodeCanvas.width = decodeCanvas.height = size;
-  const context = decodeCanvas.getContext('2d', { willReadFrequently: true });
-  context.drawImage(bitmap, 0, 0);
-  bitmap.close();
-  return new Uint8Array(context.getImageData(0, 0, size, size).data.buffer);
 }
 
 export function defaultEndpoint(where = typeof location === 'undefined' ? null : location) {
@@ -98,7 +88,7 @@ export const PROJECTOR_DEFAULTS = {
   inFlight: 0,         // requests on the wire at once; 0 = 1 on this machine, enough for the rate across the internet
 };
 
-const MAX_IN_FLIGHT = 8;
+const MAX_IN_FLIGHT = 12;
 
 const MODE_LABELS = { woven: 'woven into fabric', projector: 'physical projector', locked: 'frame-locked pairs' };
 
@@ -115,6 +105,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     engines: ['fast'], engine: 'fast', perFrameMs: {},   // measured cost of each engine
     resetCarry: false,
     driftPhase: 0, driftLabel: 'base prompt', slot: 1,
+    transport: 'http', displayFps: 60, displayFrameMs: 1000 / 60,
   };
 
   // ------------------------------------------------------------ projector camera
@@ -158,7 +149,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
     return t;
   };
-  const slots = [0, 1].map(() => ({ image: null, depth: null, has: false }));
+  const slots = [0, 1].map(() => ({ image: null, depth: null, canvas: null, has: false }));
   const figure = new Float32Array(solver.count);   // relief × mask, per particle
   // One capture per request in flight: across the internet several are on the wire
   // at once, each holding the pose its image will be laid back onto.
@@ -182,6 +173,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       slot.image?.dispose();
       slot.depth?.dispose();
       slot.image = makeImageTexture(n);
+      slot.canvas = null;
       slot.depth = makeDepthTexture(params.depthSize);
       slot.has = false;
     }
@@ -257,10 +249,17 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     for (let i = 0, j = 0; i < src.length; i++, j += 4) { dst[j] = dst[j + 1] = dst[j + 2] = src[i]; dst[j + 3] = 255; }
     depthCtx.putImageData(depthImage, 0, 0);
   }
-  function drawOutput(rgbaBottomUp) {
+  function drawOutput(rgbaBottomUp, canvas = null) {
     const n = params.size, row = n * 4, dst = outputImage.data;
-    for (let y = 0; y < n; y++) dst.set(rgbaBottomUp.subarray((n - 1 - y) * row, (n - y) * row), y * row);
-    outputScratch.getContext('2d').putImageData(outputImage, 0, 0);
+    const ctx = outputScratch.getContext('2d');
+    if (canvas) {
+      ctx.setTransform(1, 0, 0, -1, 0, n);
+      ctx.drawImage(canvas, 0, 0);
+      ctx.resetTransform();
+    } else {
+      for (let y = 0; y < n; y++) dst.set(rgbaBottomUp.subarray((n - 1 - y) * row, (n - y) * row), y * row);
+      ctx.putImageData(outputImage, 0, 0);
+    }
     outputCtx?.drawImage(outputScratch, 0, 0, outputCtx.canvas.width, outputCtx.canvas.height);
   }
   function pushStrip() {
@@ -275,8 +274,11 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
 
   // ------------------------------------------------------------ service
   const controllers = new Set();
+  const liveClock = createLiveClock();
+  const transport = createLiveTransport({ endpoint: () => state.endpoint, onMode: mode => { state.transport = mode; } });
   let generation = 0, lastRequest = 0, lastPresent = 0, nextHealth = 0, healthBusy = false, placeQueued = false;
   let lastPhaseTime = performance.now(), gridTick = 0, liveTick = 0;
+  let lastDepthPreview = 0, lastOutputPreview = 0, lastStrip = 0;
 
   async function health() {
     if (healthBusy) return;
@@ -328,7 +330,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     if (params.inFlight) return Math.max(1, Math.min(MAX_IN_FLIGHT, params.inFlight));
     if (wireFormat(state.endpoint) !== 'jpeg') return 1;
     const roundTrip = (state.roundTripMs || 300) / 1000;
-    return Math.max(1, Math.min(MAX_IN_FLIGHT, Math.ceil(params.maxFps * roundTrip)));
+    return Math.max(1, Math.min(MAX_IN_FLIGHT, Math.ceil(Math.min(params.maxFps, state.displayFps) * roundTrip) + 1));
   }
 
   /** Switch the real-time preset: resolution and request rate of live projection. */
@@ -390,8 +392,8 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       rasterDepth(pending.raster, pending.pos, indices, pending.matrix.elements, near, far, emphasis > 0 ? figure : null);
       buildStructure(pending.raster, { emphasis });
       downsampleGray(pending.raster.gray, params.depthSize, pending.model, params.size);
-      if (state.requested % 2 === 0) drawDepthPreview(pending.model);
       const now = performance.now();
+      if (now - lastDepthPreview >= 125 || !params.running) { drawDepthPreview(pending.model); lastDepthPreview = now; }
       if (params.wander) state.driftPhase += Math.min(0.5, (now - lastPhaseTime) / 1000) * params.wanderSpeed;
       lastPhaseTime = now;
       const frameId = ++state.requested;
@@ -415,29 +417,30 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       // across the internet the upload is most of the wait: send it compressed
       const payload = wireFormat(state.endpoint) === 'jpeg' ? await gzipped(body) : body;
       const tSend = performance.now();
-      const response = await fetch(`${state.endpoint}/generate`, {
-        method: 'POST', body: payload, headers: { 'Content-Type': 'application/octet-stream' },
+      const response = await transport.send(payload, {
+        id: frameId, stream: !params.priority && params.engine === 'fast',
         // a multi-step engine can take a minute, and may load itself first
         signal: AbortSignal.any([controller.signal, AbortSignal.timeout(params.engine === 'fast' ? 20000 : 600000)]),
       });
       if (epoch !== generation) return;
+      if (response.status === 204) return; // a newer pose replaced this one before inference
       if (response.status === 429) { lastRequest = performance.now() + 60; return; }
       if (response.status === 503) { state.status = 'loading'; return; }
       // the service restarted and forgot the photo: send it again, the next frame will have it
       if (response.status === 409) { reference.invalidate(referenceId); reference.ensure(); return; }
       if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
       const tHeaders = performance.now();
-      const received = response.headers.get('Content-Type')?.startsWith('image/jpeg')
-        ? await decodeFrame(await response.blob(), params.size)
-        : new Uint8Array(await response.arrayBuffer());
+      const jpeg = response.headers.get('Content-Type')?.startsWith('image/jpeg');
+      const received = jpeg ? await response.blob() : new Uint8Array(await response.arrayBuffer());
       const tBody = performance.now();
-      if (received.length !== params.size * params.size * 4) throw new Error(`unexpected frame size ${received.length}`);
+      if (!jpeg && received.length !== params.size * params.size * 4) throw new Error(`unexpected frame size ${received.length}`);
+      const bitmap = jpeg ? await createImageBitmap(received, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' }) : null;
       // turn the answer back onto the veil (one more quarter turn, see rotateQuarter)
-      const rgba = params.upright ? rotateQuarter(received, params.size, pending.rgba, 4) : received;
+      const rgba = jpeg ? null : params.upright ? rotateQuarter(received, params.size, pending.rgba, 4) : received;
       const tDecoded = performance.now();
-      if (epoch !== generation) return;
+      if (epoch !== generation) { bitmap?.close(); return; }
       // with several on the wire an older image can land after a newer one: drop it
-      if (frameId < state.lastPresentedId) return;
+      if (frameId < state.lastPresentedId) { bitmap?.close(); return; }
       state.lastPresentedId = frameId;
 
       // ---- atomic present: image + capture pose + matrix + depth into the older slot
@@ -449,7 +452,28 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       slot.depth.image.data.set(pending.raster.metric);
       slot.depth.needsUpdate = true;
       (s === 0 ? u.uProjMat0 : u.uProjMat1).value.copy(pending.matrix);
-      slot.image.image.data.set(rgba);
+      if (bitmap) {
+        if (slot.image.isDataTexture) {
+          slot.image.dispose();
+          slot.canvas = new OffscreenCanvas(params.size, params.size);
+          slot.image = new THREE.CanvasTexture(slot.canvas);
+          slot.image.colorSpace = THREE.SRGBColorSpace;
+          slot.image.flipY = false;
+          slot.image.minFilter = slot.image.magFilter = THREE.LinearFilter;
+          slot.image.generateMipmaps = false;
+        }
+        const ctx = slot.canvas.getContext('2d');
+        // JPEG rows are already bottom-up. Rotate the bitmap without reading
+        // pixels back to JS, then upload the canvas directly as the GL texture.
+        ctx.setTransform(params.upright ? 0 : 1, params.upright ? 1 : 0,
+          params.upright ? -1 : 0, params.upright ? 0 : 1, params.upright ? params.size : 0, 0);
+        ctx.drawImage(bitmap, 0, 0);
+        ctx.resetTransform();
+        bitmap.close();
+      } else {
+        if (!slot.image.isDataTexture) { slot.image.dispose(); slot.canvas = null; slot.image = makeImageTexture(params.size); }
+        slot.image.image.data.set(rgba);
+      }
       slot.image.needsUpdate = true;
       slot.has = true;
       state.slot = s;
@@ -458,11 +482,12 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
 
       mirror.setCropFromGray(pending.model, params.size);
       state.presented++;
-      if (state.presented % 2 === 1 || !params.running) drawOutput(rgba);
-      if (state.presented % 12 === 1) pushStrip();
       const t = performance.now();
-      const instant = lastPresent ? 1000 / (t - lastPresent) : 0;
-      state.fps = state.fps ? state.fps * 0.85 + instant * 0.15 : instant;
+      if (t - lastOutputPreview >= 125 || !params.running) {
+        drawOutput(rgba, slot.canvas); lastOutputPreview = t;
+        if (t - lastStrip >= 500) { pushStrip(); lastStrip = t; }
+      }
+      state.fps = liveClock.presented(t);
       lastPresent = t;
       state.latencyMs = t - started;
       state.roundTripMs = state.roundTripMs ? state.roundTripMs * 0.8 + state.latencyMs * 0.2 : state.latencyMs;
@@ -494,11 +519,17 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     generation++;
     for (const controller of controllers) controller.abort();
     state.lastPresentedId = 0;
-    for (const slot of slots) { slot.has = false; slot.image.image.data.fill(0); slot.image.needsUpdate = true; }
+    for (const slot of slots) {
+      slot.has = false;
+      if (slot.canvas) slot.canvas.getContext('2d').clearRect(0, 0, params.size, params.size);
+      else slot.image.image.data.fill(0);
+      slot.image.needsUpdate = true;
+    }
     state.slot = 1;
     u.uProjMix.value = 0;
     lastPresent = 0;
     state.fps = 0;
+    liveClock.reset();
     if (outputCtx) { outputCtx.fillStyle = '#060607'; outputCtx.fillRect(0, 0, outputCtx.canvas.width, outputCtx.canvas.height); }
     bindSlots();
   }
@@ -541,6 +572,10 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
   function update(dt) {
     if (!params.enabled) return;
     const now = performance.now();
+    if (dt > 0 && dt < 0.1) {
+      state.displayFrameMs = state.displayFrameMs * 0.9 + dt * 1000 * 0.1;
+      state.displayFps = 1000 / state.displayFrameMs;
+    }
     if (now >= nextHealth) { nextHealth = now + (state.status === 'ready' ? 8000 : 2500); health(); }
     // crossfade toward the newest slot
     if (params.show === 'generated' && params.blendMs > 0) {
@@ -561,8 +596,10 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
         drawDepthPreview(previewModel);
       }
     }
+    const requestRate = Math.min(params.maxFps, state.displayFps);
     if (params.show === 'generated' && params.running && state.status === 'ready' && state.inFlight < inFlightLimit()
-      && document.visibilityState !== 'hidden' && now - lastRequest >= 1000 / params.maxFps) {
+      && document.visibilityState !== 'hidden' && now >= lastRequest
+      && liveClock.take(now, requestRate)) {
       lastRequest = now;
       requestFrame();
     }
@@ -586,6 +623,8 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     else if (!params.running) text = `held · frame ${state.presented}`;
     else text = `${MODE_LABELS[params.mode]} · ${state.fps.toFixed(1)} generated fps · ${Math.round(state.latencyMs)} ms · ${state.driftLabel}`;
     el.textContent = text;
+    el.dataset.transport = state.transport;
+    el.dataset.inferenceMs = String(state.inferenceMs);
     if (elements.outputLabel) elements.outputLabel.textContent = state.presented ? `output · frame ${state.presented}` : 'output';
   }
 
@@ -642,6 +681,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     frame: () => requestFrame(),
     get locksSimulation() { return locksSimulation(); },
     dispose() {
+      transport.close();
       solver.params.reliefScale = 1;
       clearSlots();
       for (const slot of slots) { slot.image?.dispose(); slot.depth?.dispose(); }
