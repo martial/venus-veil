@@ -76,7 +76,7 @@ window.__veilHeadless = (() => {
       for (let s = 0; s < steps; s++) solver.step(stepper.dt, wind.sampleAt);
       solver.updateDensity();
       sculpture.update(dt);
-      if (index % state.interval === 0) await projector.recordFrame();
+      if (index % state.interval === 0) await projector.recordFrame(index / state.fps);
       ribbon.sync();
       projector.update(dt);
       studio.update(index * dt);

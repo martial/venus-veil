@@ -17,6 +17,7 @@ import torch
 from PIL import Image
 
 from advanced_models import ENGINES, catalog, installed_paths
+from latent_morph import flux_morph_latents
 
 
 class AdvancedGenerator:
@@ -134,6 +135,10 @@ class AdvancedGenerator:
             args['prompt_embeds'] = self.prompt_cache[prompt].to(self.pipe._execution_device)
         else:
             args.update(control_image=control, guidance_scale=frame.get('cfg') if frame.get('cfg') is not None else 10.)
+        morph_amount = frame.get('morph_amount', 0.) if name in ('klein', 'flux') else 0.
+        if morph_amount > 0:
+            args['latents'] = flux_morph_latents(self.pipe, name, size, args['generator'],
+                                                frame.get('morph_phase', 0.), morph_amount)
         result = self.pipe(**args).images[0].convert('RGB')
         result = result.resize((depth.shape[1], depth.shape[0]), Image.Resampling.LANCZOS)
         output = np.array(result)
@@ -144,7 +149,8 @@ class AdvancedGenerator:
                         'load_ms': round((loaded - started) * 1000, 1),
                         'sample_ms': round((ended - loaded) * 1000, 1),
                         'steps': steps, 'render_size': size, 'resident': self.resident,
-                        'prompt_cache_hit': prompt_cache_hit}
+                        'prompt_cache_hit': prompt_cache_hit, 'morph_amount': morph_amount,
+                        'morph_phase': frame.get('morph_phase', 0.) if morph_amount else 0.}
 
 
 def create_app():

@@ -1,16 +1,18 @@
 // Model inference controls. Scene looks, playback rate and output video quality
 // are separate; changing a model must not copy another model's tuning into it.
-export const MODEL_SETTING_KEYS = ['seed', 'steps', 'cfg', 'guidance', 'cnScale', 'reference', 'carry', 'negative', 'modelSize'];
+export const MORPH_KEYS = ['morph', 'morphAmount', 'morphSeconds'];
+export const MODEL_SETTING_KEYS = ['seed', 'steps', 'cfg', 'guidance', 'cnScale', 'reference', 'carry', 'negative', 'modelSize', ...MORPH_KEYS];
 export const isAdvancedModel = engine => ['sdxl', 'klein', 'flux'].includes(engine);
 
-const common = { seed: 42, steps: 0, cfg: null, guidance: 1.1, cnScale: 0.65, reference: 1, carry: 0, negative: '', modelSize: 512 };
+const common = { seed: 42, steps: 0, cfg: null, guidance: 1.1, cnScale: 0.65, reference: 1, carry: 0, negative: '', modelSize: 512,
+  morph: false, morphAmount: 0.45, morphSeconds: 12 };
 export const MODEL_DEFAULTS = {
   fast: { ...common, steps: 1, modelSize: 384 },
   fine: { ...common, steps: 8, cfg: 4 },
   best: { ...common, steps: 18, cfg: 4 },
   sdxl: { ...common, steps: 4, cfg: 0, cnScale: 0.7, modelSize: 768 },
-  klein: { ...common, steps: 4, cfg: 1, modelSize: 768 },
-  flux: { ...common, steps: 20, cfg: 10, modelSize: 768 },
+  klein: { ...common, steps: 4, cfg: 1, modelSize: 768, morph: true },
+  flux: { ...common, steps: 20, cfg: 10, modelSize: 768, morph: true },
 };
 
 export const MODEL_PRESETS = {
@@ -33,16 +35,31 @@ export function snapshotModelSettings(target) {
 
 export function applyModelPreset(target, preset) {
   // A preset changes performance/conditioning, not the chosen random seed or text.
-  const { seed, negative, ...settings } = modelSettings(target.engine, preset);
+  const { seed, negative, morph, morphAmount, morphSeconds, ...settings } = modelSettings(target.engine, preset);
   Object.assign(target, settings);
 }
 
 export function selectedModelPreset(target) {
   for (const name of Object.keys(MODEL_PRESETS[target.engine])) {
-    const { seed, negative, ...settings } = modelSettings(target.engine, name);
+    const { seed, negative, morph, morphAmount, morphSeconds, ...settings } = modelSettings(target.engine, name);
     if (Object.entries(settings).every(([key, value]) => target[key] === value)) return name;
   }
   return 'custom';
+}
+
+export const MORPH_PRESETS = {
+  still: { morph: false, morphAmount: 0.45, morphSeconds: 12 },
+  gentle: { morph: true, morphAmount: 0.25, morphSeconds: 24 },
+  flow: { morph: true, morphAmount: 0.45, morphSeconds: 12 },
+  dream: { morph: true, morphAmount: 0.85, morphSeconds: 8 },
+};
+export function applyMorphPreset(target, preset) {
+  if (!MORPH_PRESETS[preset]) throw new Error('Unknown morph preset');
+  Object.assign(target, MORPH_PRESETS[preset]);
+}
+export function selectedMorphPreset(target) {
+  if (!target.morph) return 'still';
+  return Object.keys(MORPH_PRESETS).find(name => MORPH_KEYS.every(key => target[key] === MORPH_PRESETS[name][key])) || 'custom';
 }
 
 export function createModelSettingsBank(target) {
@@ -68,6 +85,11 @@ export function modelControlSpecs(engine) {
   else if (engine !== 'flux') controls.push({ key: 'reference', label: 'photo strength', range: [0, 2, 0.05] });
   if (['fine', 'best'].includes(engine)) controls.push({ key: 'carry', label: 'previous frame influence', range: [0, 0.8, 0.05] });
   if (['fine', 'best', 'sdxl'].includes(engine)) controls.push({ key: 'negative', label: 'negative prompt' });
+  if (engine === 'klein' || engine === 'flux') controls.push(
+    { key: 'morph', label: 'latent morph' },
+    { key: 'morphAmount', label: 'morph amount', range: [0, 1, 0.01] },
+    { key: 'morphSeconds', label: 'transition (s)', range: [2, 60, 1] },
+  );
   return controls;
 }
 
@@ -76,6 +98,6 @@ export const MODEL_SETTINGS_NOTES = {
   fine: 'Fresh depth and photo per image. Keep previous frame influence at 0 to avoid losing detail in long clips.',
   best: 'More steps take longer. Keep previous frame influence at 0 to preserve the subject throughout an export.',
   sdxl: 'Four-step Hyper model. Prompt strength 0 is the default; negative prompts apply only above 1.',
-  klein: 'Four-step image editing. Photo reference can be switched off; depth adherence is experimental.',
-  flux: 'Native depth conditioning. The photo provides a caption, not visual identity; there is no independent depth strength.',
+  klein: 'Four-step image editing; depth adherence is experimental. Latent morph slowly changes the image. Longer transitions move more slowly.',
+  flux: 'Native depth conditioning; the photo supplies a caption. Latent morph slowly changes the image. Longer transitions move more slowly.',
 };

@@ -1,6 +1,7 @@
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 import { IMAGE_ENGINES, modelNote } from './projection/models.js';
-import { applyModelPreset, createModelSettingsBank, modelControlSpecs, MODEL_SETTINGS_NOTES, selectedModelPreset } from './projection/modelSettings.js';
+import { applyModelPreset, applyMorphPreset, createModelSettingsBank, modelControlSpecs, MODEL_SETTINGS_NOTES, selectedModelPreset, selectedMorphPreset } from './projection/modelSettings.js';
+import { isFluxModel } from './projection/morph.js';
 import { LIVE_PRESETS, PRESETS, applyPreset, resolveLive } from './presets.js';
 import { QUALITIES, RESOLUTIONS } from './record.js';
 
@@ -49,7 +50,7 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
   };
   const modelControls = (parent, title, target, changed) => {
     const controls = parent.addFolder(title);
-    const selection = { preset: selectedModelPreset(target) };
+    const selection = { preset: selectedModelPreset(target), motion: selectedMorphPreset(target) };
     const preset = controls.add(selection, 'preset', { Speed: 'speed', Balanced: 'balanced', Detail: 'detail', Custom: 'custom' })
       .name('model preset').onChange(name => {
         if (name !== 'custom') { applyModelPreset(target, name); changed(); }
@@ -62,6 +63,13 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
     const update = () => {
       if (currentEngine !== target.engine) {
         for (const control of [...controls.controllers]) if (control !== preset) control.destroy();
+        if (isFluxModel(target.engine)) {
+          controls.add(selection, 'motion', { Still: 'still', Gentle: 'gentle', Flow: 'flow', Dream: 'dream', Custom: 'custom' })
+            .name('morph preset').onChange(name => {
+              if (name !== 'custom') { applyMorphPreset(target, name); changed(); }
+              refresh();
+            });
+        }
         for (const spec of modelControlSpecs(target.engine)) {
           const control = spec.choices ? controls.add(target, spec.key, spec.choices)
             : spec.range ? controls.add(target, spec.key, ...spec.range) : controls.add(target, spec.key);
@@ -71,6 +79,7 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
         currentEngine = target.engine;
       }
       selection.preset = selectedModelPreset(target);
+      selection.motion = selectedMorphPreset(target);
     };
     settingsViews.push(update);
     update();

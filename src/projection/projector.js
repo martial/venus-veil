@@ -6,6 +6,7 @@ import { createLiveTransport } from './liveTransport.js';
 import { createLiveClock } from './liveClock.js';
 import { recordProjectedFrame } from './recording.js';
 import { createModelSettingsBank, isAdvancedModel, modelSettings } from './modelSettings.js';
+import { createMorphTimeline, isFluxModel, morphFrame } from './morph.js';
 
 /**
  * Live projection: the veil's depth, seen from a projector at the viewer, goes
@@ -99,6 +100,7 @@ const MODE_LABELS = { woven: 'woven into fabric', projector: 'physical projector
 export function createProjector({ renderer, scene, viewer, solver, ribbon, material, stepFrame, elements = {}, toast = () => {} }) {
   const params = { ...PROJECTOR_DEFAULTS };
   const selectModelSettings = createModelSettingsBank(params);
+  const morphTimeline = createMorphTimeline();
   const sequence = crypto.randomUUID();
   const u = material.userData.uniforms;
   const geometry = ribbon.geometry;
@@ -400,7 +402,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
   // Uploaded once to a service that takes image prompts; frames then name it by id.
   const reference = createReferenceUpload({
     state,
-    onChange() { clearSlots(); state.resetCarry = true; },
+    onChange() { clearSlots(); state.resetCarry = true; morphTimeline.reset(); },
     onStatus() { report(); },
   });
   const setReference = blob => reference.set(blob);
@@ -413,7 +415,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     return task;
   }
 
-  async function generateFrame({ strict = false } = {}) {
+  async function generateFrame({ strict = false, videoTime } = {}) {
     // Neither live frames nor recordings may silently fall back to Venus while
     // the new photo uploads. The live loop retries; a recording waits explicitly.
     if (params.reference > 0 && reference.hasPhoto) {
@@ -464,6 +466,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
         guidance: params.guidance, drift: params.wander ? params.drift : 0, drift_phase: state.driftPhase,
         format: wireFormat(state.endpoint), priority: params.priority,
         engine: params.engine,
+        ...morphFrame(params, morphTimeline.phase(params, videoTime)),
         steps: params.steps || undefined,
         cfg: params.cfg ?? undefined,
         negative: params.negative || undefined,
@@ -637,9 +640,11 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     report();
   }
 
-  function update(dt) {
+  function update(dt, { paused = false } = {}) {
     if (!params.enabled) return;
     const now = performance.now();
+    morphTimeline.advance(dt, params, !paused && params.running && !params.priority
+      && state.status === 'ready' && state.lastPresentedId > 0 && document.visibilityState !== 'hidden');
     if (dt > 0 && dt < 0.1) {
       state.displayFrameMs = state.displayFrameMs * 0.9 + dt * 1000 * 0.1;
       state.displayFps = 1000 / state.displayFrameMs;
@@ -647,7 +652,9 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     if (now >= nextHealth) { nextHealth = now + (state.status === 'ready' ? 8000 : 2500); health(); }
     // crossfade toward the newest slot
     if (params.show === 'generated' && params.blendMs > 0) {
-      const k = 1 - Math.exp(-(dt * 1000) / params.blendMs);
+      const morphBlend = isFluxModel(params.engine) && params.morph && !params.priority
+        ? Math.min(600, Math.max(150, state.roundTripMs * 0.25)) : 0;
+      const k = 1 - Math.exp(-(dt * 1000) / Math.max(params.blendMs, morphBlend));
       u.uProjMix.value += (state.slot - u.uProjMix.value) * k;
     }
     const live = params.show === 'grid' || params.mode === 'projector';
@@ -736,7 +743,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     refresh() { bindSlots(); applySurface(); applyPhysicsRelief(); report(); },
     /** Request and present one frame now (debug / headless checks). */
     frame: options => requestFrame(options),
-    recordFrame: () => recordProjectedFrame(api),
+    recordFrame: videoTime => recordProjectedFrame(api, { videoTime }),
     /** Stop live work before changing export resolution or capturing frame zero. */
     async prepareRecording() {
       params.running = false;

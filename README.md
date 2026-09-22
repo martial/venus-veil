@@ -7,6 +7,13 @@ current session; live and export settings are separate. Resolution changes speed
 SDXS stays at one step and SDXL Hyper / FLUX.2 Klein stay at four steps. DreamShaper and
 FLUX.1 Depth also expose step count. Export restores the live settings when it finishes.
 
+FLUX model settings also include **latent morph**, **morph amount**, and **transition (s)**,
+with independent **Still / Gentle / Flow / Dream** presets. Flow is the default. A seeded,
+eased spherical interpolation changes the initial diffusion noise while each frame retains
+its current photo/depth conditioning. Lower amounts stay closer to the original seed;
+longer transitions move more slowly. Live morph pauses with the scene. Exports use frame
+timestamps, so render speed and retries do not affect the motion. Still restores fixed noise.
+
 A translucent veil hovering in a dark studio, fluttering in wind. Drop a photo of a
 prehistoric Venus figurine and the veil takes its shape: the depth map is estimated
 in the browser, turned into a fabric texture, and used as a physics constraint so the

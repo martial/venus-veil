@@ -35,7 +35,7 @@ test('recording refreshes service readiness and never silently skips generation 
 
 test('headless export freezes the live clock and waits for depth before recording each pose', async () => {
   let live = true, pose = 0, releaseDepth, releaseImage;
-  const depths = [], renders = [];
+  const depths = [], renders = [], videoTimes = [];
   const depthReady = new Promise(resolve => { releaseDepth = resolve; });
   const imageReady = new Promise(resolve => { releaseImage = resolve; });
   const veil = {
@@ -45,7 +45,8 @@ test('headless export freezes the live clock and waits for depth before recordin
       params: { size: 512, enabled: true }, state: { status: 'ready', presented: 0 },
       async prepareRecording() { assert.equal(live, false); },
       setEngine(engine) { this.params.engine = engine; return true; },
-      async recordFrame() {
+      async recordFrame(videoTime) {
+        videoTimes.push(videoTime);
         depths.push(pose);
         await imageReady;
         assert.equal(pose, depths.at(-1), 'cloth must remain at its captured pose during inference');
@@ -71,4 +72,5 @@ test('headless export freezes the live clock and waits for depth before recordin
   assert.deepEqual(depths, [2]); assert.deepEqual(renders, []);
   releaseImage(); await frame; await api.frame(1);
   assert.deepEqual(depths, [2, 4]); assert.deepEqual(renders, depths);
+  assert.deepEqual(videoTimes, [0, 1 / 60]);
 });

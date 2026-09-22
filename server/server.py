@@ -19,6 +19,7 @@ Binary protocol (no base64, no PNG on the way in):
 import gc
 import gzip
 import json
+import math
 import os
 import re
 import struct
@@ -98,6 +99,14 @@ def parse_frame(body, allowed_sizes=(128, 192, 256, 384, 512)):
     if len(pixels) != size * size:
         raise FrameError(f'expected {size * size} depth bytes, got {len(pixels)}')
     prompt = str(meta.get('prompt') or DEFAULT_PROMPT)[:1000]
+    def morph_value(key, limit):
+        try:
+            value = float(meta.get(key, 0.))
+        except (TypeError, ValueError) as error:
+            raise FrameError(f'{key} must be a finite number') from error
+        if not math.isfinite(value):
+            raise FrameError(f'{key} must be a finite number')
+        return max(0., min(limit, value))
     frame = {
         'frame_id': int(meta.get('frame_id', 0)),
         'size': size,
@@ -112,6 +121,8 @@ def parse_frame(body, allowed_sizes=(128, 192, 256, 384, 512)):
         'cn_scale': max(0.2, min(1.6, float(meta['cn_scale']))) if meta.get('cn_scale') is not None else None,
         'steps': max(1, min(60, int(meta.get('steps') or 0))) if meta.get('steps') else None,
         'render_size': min((512, 768, 1024), key=lambda n: abs(n - int(meta.get('render_size') or 768))),
+        'morph_amount': morph_value('morph_amount', 1.),
+        'morph_phase': morph_value('morph_phase', 1e6),
         'cfg': max(0., min(15., float(meta['cfg']))) if meta.get('cfg') is not None else None,
         'carry': max(0., min(0.95, float(meta['carry']))) if meta.get('carry') is not None else None,
         'negative': str(meta.get('negative'))[:600] if meta.get('negative') else None,

@@ -258,7 +258,7 @@ async function start() {
         // Encode only after this pose has received its own generated image.
         if (projector.params.enabled && frame % interval === 0) {
           showProgress(`generating image ${Math.floor(frame / interval) + 1} / ${estimate.images} · ${settings.engine}${frame === 0 ? ' · first use may load the model' : ''}`, (frame / plan.frames) * 100);
-          await projector.recordFrame();
+          await projector.recordFrame(frame / plan.fps);
         }
         if (photoGeneration !== sculpture.state.generation) throw new Error('The photo changed during recording. Restart the recording with its new depth.');
         ribbon.sync();
@@ -366,7 +366,7 @@ async function start() {
     }
     ribbon.sync();
     controls.update();
-    projector.update(Math.min(frameDt, 0.1));
+    projector.update(Math.min(frameDt, 0.1), { paused });
     studio.update(t);
     // shadows on a schedule; the key light and the veil move slowly relative to the frame rate
     renderer.shadowMap.needsUpdate = shadowTick++ % quality.settings.shadowInterval === 0;
