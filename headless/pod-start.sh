@@ -19,7 +19,7 @@ pkill -f "server/server.py" 2>/dev/null || true
 pkill -f "headless/serve.mjs" 2>/dev/null || true
 sleep 1
 
-nohup python3 server/server.py > "$LOGS/service.log" 2>&1 &
+nohup "${VENUS_VENV:-/workspace/venus-venv}/bin/python" server/server.py > "$LOGS/service.log" 2>&1 &
 nohup node headless/serve.mjs --port "$PORT" --token "$TOKEN" > "$LOGS/web.log" 2>&1 &
 
 printf 'waiting for the diffusion service'

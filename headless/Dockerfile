@@ -3,7 +3,7 @@
 #
 #   docker build -f headless/Dockerfile -t venus-veil .
 #   docker run --gpus all -v $PWD/out:/out venus-veil --seconds 8 --engine best --out /out/clip.mp4
-FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+FROM nvidia/cuda:12.8.1-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
@@ -23,7 +23,7 @@ WORKDIR /app
 
 # python side: torch from the CUDA wheel index, then the rest
 COPY server/requirements-cuda.txt server/requirements-cuda.txt
-RUN pip3 install --no-cache-dir --index-url https://download.pytorch.org/whl/cu124 torch==2.5.1 \
+RUN pip3 install --no-cache-dir --index-url https://download.pytorch.org/whl/cu128 torch==2.7.1 \
     && pip3 install --no-cache-dir -r server/requirements-cuda.txt
 
 # node side: the app, its build, and Chromium for the headless renderer

@@ -1,6 +1,9 @@
-# Linux + NVIDIA. Install torch from the CUDA index first:
-#   pip install --index-url https://download.pytorch.org/whl/cu124 torch==2.5.1
-torch==2.5.1
+# Linux + NVIDIA. Install torch from the CUDA index first, matching the card:
+#   RTX 50xx / Blackwell (sm_120) and anything recent:
+#     pip install --index-url https://download.pytorch.org/whl/cu128 torch==2.7.1
+#   older drivers (CUDA 12.4):
+#     pip install --index-url https://download.pytorch.org/whl/cu124 torch==2.5.1
+torch>=2.5
 diffusers==0.32.2
 transformers==4.46.3
 peft>=0.14,<1
