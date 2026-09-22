@@ -18,10 +18,14 @@ TOKEN_FILE=/workspace/venus-token
 TOKEN=${VENUS_TOKEN:-$(cat "$TOKEN_FILE")}
 
 pkill -f "server/server.py" 2>/dev/null || true
+pkill -f "server/advanced_worker.py" 2>/dev/null || true
 pkill -f "headless/serve.mjs" 2>/dev/null || true
 sleep 1
 
 nohup "${VENUS_VENV:-/workspace/venus-venv}/bin/python" server/server.py > "$LOGS/service.log" 2>&1 &
+if [ -x "${VENUS_ADVANCED_VENV:-/workspace/venus-advanced-venv}/bin/python" ]; then
+  nohup "${VENUS_ADVANCED_VENV:-/workspace/venus-advanced-venv}/bin/python" server/advanced_worker.py > "$LOGS/advanced.log" 2>&1 &
+fi
 nohup node headless/serve.mjs --port "$PORT" --token "$TOKEN" > "$LOGS/web.log" 2>&1 &
 
 printf 'waiting for the diffusion service'

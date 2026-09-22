@@ -99,7 +99,11 @@ class ReferenceStore:
                 inputs = self.caption_processor(images=image, return_tensors='pt').to(self.device, torch.float16)
                 output = self.captioner.generate(**inputs, max_new_tokens=40, num_beams=3, do_sample=False)
                 caption = self.caption_processor.decode(output[0], skip_special_tokens=True).strip()
-            self.items[key] = {'embedding': embedding, 'caption': caption}
+            # Native image editors need the photograph, not only its CLIP embedding.
+            image.thumbnail((1024, 1024))
+            buffer = io.BytesIO()
+            image.save(buffer, format='JPEG', quality=95)
+            self.items[key] = {'embedding': embedding, 'caption': caption, 'image': buffer.getvalue()}
         while len(self.items) > self.keep:
             self.items.popitem(last=False)
         return key
@@ -113,3 +117,6 @@ class ReferenceStore:
 
     def describe(self, key):
         return self.items.get(key, {}).get('caption', '')
+
+    def image(self, key):
+        return self.items.get(key, {}).get('image')

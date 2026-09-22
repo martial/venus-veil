@@ -1,4 +1,5 @@
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
+import { IMAGE_ENGINES, modelNote } from './projection/models.js';
 import { LIVE_PRESETS, PRESETS, applyPreset, resolveLive } from './presets.js';
 import { QUALITIES, RESOLUTIONS } from './record.js';
 
@@ -144,13 +145,27 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
   // ---------------------------------------------------------------- export
   if (exportSettings) {
     const fExport = gui.addFolder('Export');
-    fExport.add(exportSettings, 'engine', { 'live · one step': 'fast', 'fine · 8 steps': 'fine', 'best · 18 steps': 'best' })
+    const engineNote = document.createElement('div');
+    engineNote.className = 'look-note';
+    engineNote.setAttribute('role', 'status');
+    const updateModels = () => {
+      engineNote.textContent = modelNote(exportSettings.engine, projector.state);
+      for (const option of engineControl.domElement.querySelectorAll('option')) {
+        const name = IMAGE_ENGINES[option.textContent];
+        option.disabled = !projector.state.engines.includes(name);
+      }
+    };
+    const engineControl = fExport.add(exportSettings, 'engine', IMAGE_ENGINES)
       .name('image engine').onChange(engine => {
         // a slow engine wants fewer images: every frame would take hours
-        exportSettings.diffusionFps = engine === 'fast' ? exportSettings.fps : engine === 'fine' ? 6 : 2;
+        exportSettings.diffusionFps = engine === 'fast' ? exportSettings.fps : engine === 'fine' ? 6 : engine === 'best' ? 2 : 1;
+        exportSettings.steps = 0;
         if (engine !== 'fast' && exportSettings.generated > 512) exportSettings.generated = 512;
         fExport.controllers.forEach(c => c.updateDisplay());
+        updateModels();
       });
+    engineControl.domElement.after(engineNote);
+    if (projector) { projector.onModels = updateModels; updateModels(); }
     fExport.add(exportSettings, 'steps', 0, 40, 1).name('steps (0 = engine default)');
     fExport.add(exportSettings, 'format', { 'MP4 (H.264)': 'mp4', 'WebM (VP9)': 'webm' }).name('format');
     fExport.add(exportSettings, 'resolution', Object.keys(RESOLUTIONS)).name('resolution');

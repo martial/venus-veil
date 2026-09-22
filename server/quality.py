@@ -6,9 +6,9 @@ generator.py — seconds rather than milliseconds — and much better: real
 sampling, classifier-free guidance with a negative prompt, and the veil's depth
 used directly instead of edges traced from it.
 
-Two presets:
-    fine   LCM-LoRA, 6-8 steps, low guidance
-    best   DPM++ 2M Karras, ~25 steps, full guidance
+Two presets, both DPM++ 2M Karras with classifier-free guidance:
+    fine   8 steps
+    best   18 steps
 
 Frames carry: each one starts from the previous generated image, so the
 material and the light persist while the folds change.
@@ -31,10 +31,10 @@ LCM_LORA = 'latent-consistency/lcm-lora-sdv1-5'
 NEGATIVE = ('blurry, low quality, jpeg artifacts, text, watermark, signature, frame, border, '
             'flat, washed out, duplicated limbs, deformed hands, cartoon')
 
-# cfg exactly 1.0 means no classifier-free guidance, so the batch stays at one
-# and the frame costs half as much. Lower guidance also flickers less.
+# Low-guidance LCM collapsed photo-conditioned cloth into a smooth coloured
+# silhouette. Eight DPM++ steps retain scales and relief at a comparable cost.
 PRESETS = {
-    'fine': {'steps': 8, 'cfg': 1.0, 'scheduler': 'lcm', 'carry': 0.45, 'cn_scale': 0.7, 'cn_end': 0.8},
+    'fine': {'steps': 8, 'cfg': 4.0, 'scheduler': 'dpm', 'carry': 0.45, 'cn_scale': 0.65, 'cn_end': 0.75},
     'best': {'steps': 18, 'cfg': 4.0, 'scheduler': 'dpm', 'carry': 0.45, 'cn_scale': 0.65, 'cn_end': 0.75},
 }
 

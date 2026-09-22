@@ -43,7 +43,8 @@ ALLOWED_ORIGINS += [o.strip() for o in os.environ.get('VENUS_ALLOWED_ORIGINS', '
 NEGATIVE_PROMPT = ('blurry, low quality, jpeg artifacts, text, watermark, signature, frame, border, '
                    'flat, washed out, duplicated limbs, deformed hands, cartoon')
 
-ENGINES = ('fast', 'fine', 'best')      # fast = one step (Core ML, or PyTorch on a server), the others multi-step
+from advanced_models import ENGINES as ADVANCED_ENGINES
+ENGINES = ('fast', 'fine', 'best', *ADVANCED_ENGINES)
 LIVE_STEPS = 4                          # live frames on a box without the one-step weights
 LIVE_WAIT_S = 0.25                      # how long a live frame waits for the engine before it is dropped
 ROOMY = sys.platform != 'darwin'        # a server card holds every engine at once; a laptop holds one
@@ -136,7 +137,7 @@ def load_model():
         try:
             import quality as quality_module
             if quality_module.available():
-                state['engines'] = list(ENGINES)
+                state['engines'] = ['fast', 'fine', 'best']
         except Exception as error:  # noqa: BLE001
             state['engine_error'] = str(error)
         print(f'projector ready in {state["load_s"]} s · sizes {state["sizes"]} · engines {state["engines"]}', flush=True)
@@ -190,6 +191,13 @@ def load_without_coreml(reason):
 def use_engine(name, preset_reset=False):
     """Make `name` the resident engine, unloading the other. Called on a worker thread."""
     global generator, quality, last_quality_use
+    if name in ADVANCED_ENGINES:
+        import advanced_client
+        spec = advanced_client.models()[name]
+        if not spec['available']:
+            raise ValueError(f'{spec["label"]}: {spec.get("reason", "unavailable")}')
+        state['engine'] = name
+        return advanced_client
     if name == 'fast' and 'fast' not in state['engines']:
         name = state['engines'][0]      # no Core ML here: use the multi-step engine
     if name == 'fast':
@@ -322,7 +330,10 @@ def create_app(load=True):
     @app.get('/health')
     async def health():
         release_idle_engine()
-        return dict(state, **jobs.snapshot(), busy=lock.locked(), prompt_drift=True, default_prompt=DEFAULT_PROMPT,
+        import advanced_client
+        optional = await run_in_threadpool(advanced_client.models)
+        engines = list(state['engines']) + [name for name, spec in optional.items() if spec['available']]
+        return dict(state, **jobs.snapshot(), engines=engines, models=optional, busy=lock.locked(), prompt_drift=True, default_prompt=DEFAULT_PROMPT,
                     negative_prompt=NEGATIVE_PROMPT)
 
     @app.post('/generate')
@@ -351,7 +362,10 @@ def create_app(load=True):
                     if photo is None:
                         raise UnknownReference(frame['reference'])
                 with_photo = {'photo': photo, 'photo_scale': frame['reference_scale']} if photos else {}
-                if state['engine'] == 'fast':
+                if frame['engine'] in ADVANCED_ENGINES:
+                    rgb, stages = engine.generate(frame, depth, photo,
+                                                  photos.image(frame['reference']) if photos and frame['reference'] else None)
+                elif state['engine'] == 'fast':
                     if frame['size'] != engine.size:
                         engine.load_size(frame['size'])
                     rgb, stages = engine.generate(depth, frame['prompt'], frame['seed'], frame['guidance'],

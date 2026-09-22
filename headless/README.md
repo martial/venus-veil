@@ -118,3 +118,38 @@ frame, so the app itself carries no test hooks: everything goes through the
 by one frame's worth of time, asks for a generated image when one is due, renders,
 and is screenshotted to disk. Nothing is timed by the wall clock, so a frame that
 takes a minute is still 1/60 s in the file.
+
+### Optional export models
+
+The live engine remains SDXS. Exports also offer DreamShaper at 8 or 18 DPM++
+steps, SDXL Hyper with Depth ControlNet and IP-Adapter, FLUX.2 Klein 4B image
+editing, and FLUX.1 Depth-dev. Uninstalled models are disabled in the picker.
+Klein interprets depth as an image reference (experimental), while FLUX.1 uses
+native depth conditioning plus text; FLUX.1 does not preserve photo identity via
+IP-Adapter. These models change the look and are intended for offline export.
+
+On a CUDA pod already configured by `pod-setup.sh`:
+
+```sh
+bash headless/setup-advanced.sh sdxl klein flux
+VENUS_PORT=8888 bash headless/pod-start.sh
+```
+
+Use only the desired names to install fewer models. Allow roughly 100 GB of disk
+for all weights, existing models and runtime. Downloads check disk headroom;
+weights are never fetched during a generation request. Logs are in
+`/workspace/venus-logs/advanced.log`. The separate runtime reuses the pod's tested
+Torch/CUDA and pins its own Diffusers/Transformers versions.
+
+FLUX.1 Depth requires accepting the model's conditions at
+<https://huggingface.co/black-forest-labs/FLUX.1-Depth-dev>. Log in interactively on
+the pod with a read token (do not place it in a command, repository or chat):
+
+```sh
+HF_HOME=/workspace/huggingface /workspace/venus-venv/bin/huggingface-cli login
+```
+
+SDXL and Klein's model repositories are public. FLUX.1 weights have their own
+license terms. Configure credentials before downloading, then rerun the setup
+command. Startup launches the optional worker on loopback port 5194; the normal
+service serializes its GPU requests with live generation and photo encoding.

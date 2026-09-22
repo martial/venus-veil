@@ -104,7 +104,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     status: 'offline', error: null, model: null, device: null,
     endpoint: defaultEndpoint(),
     busy: false, inFlight: 0, roundTripMs: 0, references: false, referenceId: null, requested: 0, presented: 0, lastPresentedId: 0, liveApplied: null, fps: 0, latencyMs: 0, inferenceMs: 0, sizes: [256],
-    engines: ['fast'], engine: 'fast', perFrameMs: {},   // measured cost of each engine
+    engines: ['fast'], models: {}, engine: 'fast', perFrameMs: {},   // measured cost of each engine
     resetCarry: false,
     driftPhase: 0, driftLabel: 'base prompt', slot: 1,
     transport: 'http', displayFps: 60, displayFrameMs: 1000 / 60,
@@ -295,6 +295,8 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       state.device = h.device;
       if (Array.isArray(h.sizes) && h.sizes.length) state.sizes = h.sizes;
       if (Array.isArray(h.engines) && h.engines.length) state.engines = h.engines;
+      state.models = h.models || {};
+      api.onModels?.();
       state.references = !!h.references;
       if (state.status === 'ready') reference.ensure();
       // a recording (priority) owns the size until it ends

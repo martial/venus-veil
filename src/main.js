@@ -149,7 +149,7 @@ async function start() {
     engine: 'fast', steps: 0,
   };
   // measured cost per generated frame, so the estimate is honest about this machine
-  const ENGINE_COST_MS = { fast: 150, fine: 11000, best: 32000 };
+  const ENGINE_COST_MS = { fast: 150, fine: 11000, best: 32000, sdxl: 2000, klein: 3000, flux: 15000 };
   const estimateRecording = () => {
     const plan = exportPlan(exportSettings);
     const interval = diffusionInterval(plan.fps, exportSettings.diffusionFps);
@@ -169,6 +169,13 @@ async function start() {
   let armed = 0;
   async function recordVideo() {
     if (recording.active) { recording.cancel = true; return; }
+    if (projector.params.enabled) {
+      await projector.health();
+      if (!projector.state.engines.includes(exportSettings.engine)) {
+        toast(projector.state.models?.[exportSettings.engine]?.reason || 'This image engine is unavailable on this service.', 7000);
+        return;
+      }
+    }
     const estimate = estimateRecording();
     // a multi-step engine turns a 32 s master into an evening: say so, then wait
     // for a second press

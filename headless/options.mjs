@@ -34,7 +34,7 @@ export const HELP = `venus-veil headless renderer
   node headless/render.mjs [options]
 
   --look <name>          limestone | bronze | ivory | obsidian | wandering  (${DEFAULTS.look})
-  --engine <name>        fast | fine | best                                 (${DEFAULTS.engine})
+  --engine <name>        fast | fine | best | sdxl | klein | flux            (${DEFAULTS.engine})
   --steps <n>            override the engine's step count
   --seconds <n>          clip length                                        (${DEFAULTS.seconds})
   --fps <n>              frames per second of the file                      (${DEFAULTS.fps})
@@ -60,7 +60,7 @@ export const HELP = `venus-veil headless renderer
 const NUMBERS = new Set(['steps', 'seconds', 'fps', 'imagesPerSecond', 'width', 'height', 'generated',
   'seed', 'carry', 'orbit', 'hold', 'crf', 'timeoutMs']);
 const LOOKS = ['limestone', 'bronze', 'ivory', 'obsidian', 'wandering'];
-const ENGINES = ['fast', 'fine', 'best'];
+const ENGINES = ['fast', 'fine', 'best', 'sdxl', 'klein', 'flux'];
 
 const camel = flag => flag.replace(/^--/, '').replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 
@@ -104,7 +104,7 @@ export function validate(options) {
 }
 
 /** Rough wall-clock estimate, from measured seconds per generated image. */
-export function estimate(options, secondsPerImage = { fast: 0.15, fine: 11, best: 32 }) {
+export function estimate(options, secondsPerImage = { fast: 0.15, fine: 11, best: 32, sdxl: 2, klein: 3, flux: 15 }) {
   const per = secondsPerImage[options.engine] ?? 10;
   const seconds = options.imageCount * per + options.frameCount * 0.25;
   const hours = Math.floor(seconds / 3600);
