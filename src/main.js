@@ -262,7 +262,10 @@ async function start() {
         solver.updateDensity();
         sculpture.update(plan.dt);
         // Encode only after this pose has received its own generated image.
-        if (projector.params.enabled && frame % interval === 0) await projector.recordFrame();
+        if (projector.params.enabled && frame % interval === 0) {
+          showProgress(`generating image ${Math.floor(frame / interval) + 1} / ${estimate.images} · ${settings.engine}${frame === 0 ? ' · first use may load the model' : ''}`, (frame / plan.frames) * 100);
+          await projector.recordFrame();
+        }
         if (photoGeneration !== sculpture.state.generation) throw new Error('The photo changed during recording. Restart the recording with its new depth.');
         ribbon.sync();
         projector.update(plan.dt);
