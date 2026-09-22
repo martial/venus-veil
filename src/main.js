@@ -179,79 +179,71 @@ async function start() {
       return;
     }
     armed = 0;
-    const plan = exportPlan(exportSettings);
-    const target = RESOLUTIONS[exportSettings.resolution];
-    const generated = Number(exportSettings.generated);
+    const settings = { ...exportSettings };
+    const plan = exportPlan(settings);
+    const target = RESOLUTIONS[settings.resolution];
+    const generated = Number(settings.generated);
     const before = {
       samples: post.params.samples,
-      size: renderer.getSize(new THREE.Vector2()),
       pixelRatio: renderer.getPixelRatio(),
       auto: quality.params.auto,
       scale: quality.params.scale,
       level: quality.params.level,
       running: projector.params.running,
+      priority: projector.params.priority,
       engine: projector.params.engine,
       steps: projector.params.steps,
       generated: projector.params.size,
       aspect: camera.aspect,
     };
+    const orbitAxis = new THREE.Vector3(0, 1, 0);
+    const orbitStart = new THREE.Vector3().copy(camera.position).sub(controls.target);
+    const orbitOffset = new THREE.Vector3();
+    let recorder, stopped = false, saved = false;
     recording.active = true;
     recording.cancel = false;
     sculpture.setQuiet(true);
     $('clip-link').hidden = true;
-    if (document.visibilityState === 'hidden') toast('keep this tab in front while recording', 5000);
-    renderer.setAnimationLoop(null);
-    quality.params.auto = false;
-    quality.reset(1, 0);
-    applyQuality();
-    projector.params.running = false;           // frames are driven by hand below
-    projector.params.priority = true;           // and they wait their turn on the service
-    projector.params.engine = exportSettings.engine;
-    projector.params.steps = exportSettings.steps;
-    projector.state.resetCarry = true;          // a clip starts from a clean frame
-    const [exportWidth, exportHeight] = evenSize(...(target || [viewport.clientWidth, viewport.clientHeight]));
-    renderer.setPixelRatio(1);
-    renderer.setSize(exportWidth, exportHeight, false);
-    // 4K with 4x multisampling asks for a lot of memory at once
-    if (exportWidth > 2560) { post.params.samples = 2; post.apply(); }
-    post.setSize(exportWidth, exportHeight);
-    camera.aspect = exportWidth / exportHeight;
-    camera.updateProjectionMatrix();
-    if (projector.params.enabled && generated !== projector.params.size) {
-      projector.setSize(generated);
-      projector.clearSlots();
-    }
-    let recorder;
-    const width = exportWidth, height = exportHeight;
     try {
+      // Live animation keeps running until the uploaded photo's depth and reveal
+      // are ready. Otherwise frame zero can contain the previous photo's shape.
+      showProgress('preparing recording · waiting for photo depth…', 0);
+      await sculpture.whenReady({ cancelled: () => recording.cancel });
+      if (recording.cancel) return;
+      const photoGeneration = sculpture.state.generation;
+      if (projector.params.enabled) await projector.prepareRecording();
+      projector.params.running = false;
+      projector.params.priority = true;
+      projector.params.engine = settings.engine;
+      projector.params.steps = settings.steps;
+      renderer.setAnimationLoop(null);
+      stopped = true;
+      quality.params.auto = false;
+      quality.reset(1, 0);
+      applyQuality();
+      const [width, height] = evenSize(...(target || [viewport.clientWidth, viewport.clientHeight]));
+      renderer.setPixelRatio(1);
+      renderer.setSize(width, height, false);
+      if (width > 2560) { post.params.samples = 2; post.apply(); }
+      post.setSize(width, height);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      if (projector.params.enabled && generated !== projector.params.size) projector.setSize(generated);
       recorder = window.VideoEncoder
         ? await createFrameWriter(renderer.domElement, {
-            fps: plan.fps, format: exportSettings.format,
-            bitrate: pickBitrate(width, height, plan.fps, exportSettings.quality),
+            fps: plan.fps, format: settings.format,
+            bitrate: pickBitrate(width, height, plan.fps, settings.quality),
           })
-        : createVideoRecorder(renderer.domElement, { fps: plan.fps, format: exportSettings.format, quality: exportSettings.quality });
-    } catch (error) {
-      console.error(error);
-      toast(`cannot record: ${error.message}`, 6000);
-      recording.active = false;
-      sculpture.setQuiet(false);
-      renderer.setAnimationLoop(animate);
-      return;
-    }
-    const started = performance.now();
-    let time = timer.getElapsed();
-    // the camera holds still, then drifts around the veil
-    const orbitAxis = new THREE.Vector3(0, 1, 0);
-    const orbitStart = new THREE.Vector3().copy(camera.position).sub(controls.target);
-    const orbitOffset = new THREE.Vector3();
-    const interval = diffusionInterval(plan.fps, exportSettings.diffusionFps);
-    try {
+        : createVideoRecorder(renderer.domElement, { fps: plan.fps, format: settings.format, quality: settings.quality });
+      const started = performance.now();
+      let time = timer.getElapsed();
+      const interval = diffusionInterval(plan.fps, settings.diffusionFps);
       recorder.start?.();
       for (let frame = 0; frame < plan.frames && !recording.cancel; frame++) {
-        // encoding is suspended in a hidden tab: hold the clip until we are back
         if (await whenVisible()) showProgress(`recording ${frame} / ${plan.frames} · resumed`, (frame / plan.frames) * 100);
-        if (exportSettings.orbit) {
-          const degrees = cameraAngle(frame / plan.frames, { hold: exportSettings.hold, degrees: exportSettings.orbit });
+        if (photoGeneration !== sculpture.state.generation) throw new Error('The photo changed during recording. Restart the recording with its new depth.');
+        if (settings.orbit) {
+          const degrees = cameraAngle(frame / plan.frames, { hold: settings.hold, degrees: settings.orbit });
           orbitOffset.copy(orbitStart).applyAxisAngle(orbitAxis, THREE.MathUtils.degToRad(degrees));
           camera.position.copy(controls.target).add(orbitOffset);
           camera.lookAt(controls.target);
@@ -262,16 +254,9 @@ async function start() {
         for (let s = 0; s < steps; s++) solver.step(stepper.dt, wind.sampleAt);
         solver.updateDensity();
         sculpture.update(plan.dt);
-        // a new generated image every `interval` frames: the clip runs at its own
-        // frame rate while the diffusion updates beneath it, as it does live
-        if (projector.params.enabled && projector.state.status === 'ready' && frame % interval === 0) {
-          for (let attempt = 0; attempt < 4; attempt++) {
-            const presented = projector.state.presented;
-            await projector.frame();
-            if (projector.state.presented > presented) break;
-            await new Promise(resolve => setTimeout(resolve, 80));
-          }
-        }
+        // Encode only after this pose has received its own generated image.
+        if (projector.params.enabled && frame % interval === 0) await projector.recordFrame();
+        if (photoGeneration !== sculpture.state.generation) throw new Error('The photo changed during recording. Restart the recording with its new depth.');
         ribbon.sync();
         projector.update(plan.dt);
         studio.update(time);
@@ -284,6 +269,7 @@ async function start() {
         await new Promise(resolve => setTimeout(resolve, 0));
       }
       const blob = recorder.finish ? await recorder.finish() : await recorder.stop();
+      saved = true;
       const name = `venus-veil-${ui.state.look}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.${recorder.extension}`;
       offerBlob(blob, name, $('clip-link'));
       showProgress(`saved ${name} · ${(blob.size / 1e6).toFixed(1)} MB`, 100);
@@ -292,28 +278,32 @@ async function start() {
       console.error(error);
       toast(`recording failed: ${error.message}`, 6000);
     } finally {
+      if (recorder && !saved) {
+        try { if (recorder.cancel) await recorder.cancel(); else await recorder.stop(); } catch { /* already closed */ }
+      }
       setTimeout(() => progressEl.classList.remove('visible'), 2500);
       recording.active = false;
       sculpture.setQuiet(false);
       projector.params.running = before.running;
-      projector.params.priority = false;
-      projector.params.engine = before.engine === 'fast' ? 'fast' : before.engine;
+      projector.params.priority = before.priority;
+      projector.params.engine = before.engine;
       projector.params.steps = before.steps;
-      if (projector.params.enabled && projector.params.size !== before.generated) {
+      if (projector.params.size !== before.generated) {
         projector.setSize(before.generated);
         projector.clearSlots();
       }
-      post.params.samples = before.samples;
-      renderer.setPixelRatio(before.pixelRatio);
-      camera.position.copy(controls.target).add(orbitStart);
-      camera.lookAt(controls.target);
-      camera.aspect = before.aspect;
-      camera.updateProjectionMatrix();
-      resize();
-      quality.params.auto = before.auto;
-      quality.reset(before.scale, before.level);
-      applyQuality();
-      renderer.setAnimationLoop(animate);
+      if (stopped) {
+        post.params.samples = before.samples;
+        renderer.setPixelRatio(before.pixelRatio);
+        camera.position.copy(controls.target).add(orbitStart);
+        camera.lookAt(controls.target);
+        camera.aspect = before.aspect;
+        camera.updateProjectionMatrix();
+        quality.params.auto = before.auto;
+        quality.reset(before.scale, before.level);
+        applyQuality();
+        renderer.setAnimationLoop(animate);
+      }
     }
   }
 

@@ -24,6 +24,7 @@ export function createSculpturePipeline({ solver, material, ribbon, renderer, to
     info: null,
     generation: 0,
     busy: false,
+    error: null,
     reveal: { active: false, t: 0 },
     lastDepthMs: 0,
   };
@@ -89,6 +90,7 @@ export function createSculpturePipeline({ solver, material, ribbon, renderer, to
 
   async function loadSource(source, name, generation = ++state.generation) {
     state.busy = true;
+    state.error = null;
     try {
       setProgress(`reading ${name}`, 3);
       const bitmap = await decode(source);
@@ -109,11 +111,15 @@ export function createSculpturePipeline({ solver, material, ribbon, renderer, to
       toast(`${name}: depth via ${result.backend?.device} in ${result.depthMs} ms`);
     } catch (err) {
       if (generation !== state.generation) return;
+      state.error = err.message;
       console.error(err);
       hideProgress(0);
       toast(`could not process ${name}: ${err.message}`, 6000);
     } finally {
-      if (generation === state.generation) state.busy = false;
+      if (generation === state.generation) {
+        state.busy = false;
+        if (refitPending) { refitPending = false; scheduleRefit(); }
+      }
     }
   }
 
@@ -124,11 +130,15 @@ export function createSculpturePipeline({ solver, material, ribbon, renderer, to
 
   async function loadSample() {
     const generation = ++state.generation;
+    state.busy = true;
+    state.error = null;
     try {
       const res = await fetch(sampleUrl);
       const blob = await res.blob();
       if (generation === state.generation) await loadSource(blob, 'willendorf.png', generation);
-    } catch (err) { toast(`sample failed: ${err.message}`); }
+    } catch (err) {
+      if (generation === state.generation) { state.error = err.message; toast(`sample failed: ${err.message}`); }
+    } finally { if (generation === state.generation) state.busy = false; }
   }
 
   function snapshotParams() {
@@ -212,10 +222,12 @@ export function createSculpturePipeline({ solver, material, ribbon, renderer, to
 
   function scheduleRefit() {
     clearTimeout(refitTimer);
-    refitTimer = setTimeout(rebuild, 120);
+    refitTimer = setTimeout(() => { refitTimer = null; rebuild(); }, 120);
   }
 
   function clear() {
+    state.error = null;
+    clearTimeout(refitTimer); refitTimer = null; refitPending = false;
     state.generation++;
     state.busy = false;
     state.loaded = false; state.name = null; state.info = null;
@@ -294,6 +306,15 @@ export function createSculpturePipeline({ solver, material, ribbon, renderer, to
     onPhoto: null,     // (jpeg blob | null, name) => void, as soon as a photo is decoded, or cleared
     /** Hold back status messages while something else owns the progress line. */
     setQuiet(value) { quiet.value = value; },
+    /** Wait for the current depth, then finish its reveal even when the cloth is paused. */
+    async whenReady({ cancelled = () => false } = {}) {
+      while (state.busy || refitTimer || refitPending) {
+        if (cancelled()) return;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      if (state.error) throw new Error(`Photo depth is not ready: ${state.error}`);
+      if (state.reveal.active) update(params.revealSeconds);
+    },
     get backend() { return worker.backend; },
     loadFile, loadSample, loadSource, rebuild, clear, update, buildControls,
     preload: () => worker.load().catch(err => console.warn('[depth] preload failed', err)),

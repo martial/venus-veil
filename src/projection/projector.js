@@ -4,6 +4,7 @@ import { LIVE_PRESETS, pickSize, resolveLive, promptForReference } from '../pres
 import { createReferenceUpload } from './reference.js';
 import { createLiveTransport } from './liveTransport.js';
 import { createLiveClock } from './liveClock.js';
+import { recordProjectedFrame } from './recording.js';
 
 /**
  * Live projection: the veil's depth, seen from a projector at the viewer, goes
@@ -356,7 +357,15 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
   });
   const setReference = blob => reference.set(blob);
 
-  async function requestFrame() {
+  const requests = new Set();
+  function requestFrame(options) {
+    const task = generateFrame(options);
+    requests.add(task);
+    task.then(() => requests.delete(task), () => requests.delete(task));
+    return task;
+  }
+
+  async function generateFrame({ strict = false } = {}) {
     // Neither live frames nor recordings may silently fall back to Venus while
     // the new photo uploads. The live loop retries; a recording waits explicitly.
     if (params.reference > 0 && reference.hasPhoto) {
@@ -391,6 +400,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
         for (let i = 0; i < solver.count; i++) figure[i] = relief[i] * solver.mask[i] * reveal;
       }
       rasterDepth(pending.raster, pending.pos, indices, pending.matrix.elements, near, far, emphasis > 0 ? figure : null);
+      if (strict && !pending.raster.covered) throw new Error('No visible cloth depth to record. Move the camera back toward the veil.');
       buildStructure(pending.raster, { emphasis });
       downsampleGray(pending.raster.gray, params.depthSize, pending.model, params.size);
       const now = performance.now();
@@ -414,7 +424,6 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
         reference: referenceId || undefined,
         reference_scale: params.reference,
       }, params.upright ? rotateQuarter(pending.model, params.size, pending.turned) : pending.model);
-      state.resetCarry = false;
       // across the internet the upload is most of the wait: send it compressed
       const payload = wireFormat(state.endpoint) === 'jpeg' ? await gzipped(body) : body;
       const tSend = performance.now();
@@ -502,10 +511,13 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       state.inferenceMs = Number(response.headers.get('X-Inference-Ms')) || 0;
       state.driftLabel = response.headers.get('X-Drift-Label') || state.driftLabel;
       state.error = null;
+      state.resetCarry = false;
+      return frameId;
     } catch (error) {
       if (error.name === 'AbortError' || epoch !== generation) return;
       if (error.name === 'TypeError' || error.name === 'TimeoutError') { state.status = 'offline'; state.error = null; }
       else state.error = error.message;
+      if (strict) throw error;
     } finally {
       controllers.delete(controller);
       pending.busy = false;
@@ -684,7 +696,18 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     /** Re-apply params that were changed in bulk (a look preset). */
     refresh() { bindSlots(); applySurface(); applyPhysicsRelief(); report(); },
     /** Request and present one frame now (debug / headless checks). */
-    frame: () => requestFrame(),
+    frame: options => requestFrame(options),
+    recordFrame: () => recordProjectedFrame(api),
+    /** Stop live work before changing export resolution or capturing frame zero. */
+    async prepareRecording() {
+      params.running = false;
+      params.priority = true;
+      clearSlots();
+      transport.close();
+      await Promise.allSettled([...requests]);
+      state.resetCarry = true;
+      await health();
+    },
     get locksSimulation() { return locksSimulation(); },
     dispose() {
       transport.close();

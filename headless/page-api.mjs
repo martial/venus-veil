@@ -16,13 +16,16 @@ window.__veilHeadless = (() => {
   };
 
   return {
-    prepare(settings) {
+    async prepare(settings) {
       const { projector, solver, quality, post, studio, camera, controls, ui } = veil;
+      if (settings.service) projector.state.endpoint = settings.service;
+      await veil.sculpture.whenReady();
+      veil.renderer.setAnimationLoop(null);
+      await projector.prepareRecording();
       Object.assign(state, {
         fps: settings.fps, interval: settings.interval, frames: settings.frames,
         orbit: settings.orbit, hold: settings.hold,
       });
-      if (settings.service) projector.state.endpoint = settings.service;
       projector.params.engine = settings.engine;
       projector.params.steps = settings.steps || 0;
       projector.params.seed = settings.seed;
@@ -73,14 +76,7 @@ window.__veilHeadless = (() => {
       for (let s = 0; s < steps; s++) solver.step(stepper.dt, wind.sampleAt);
       solver.updateDensity();
       sculpture.update(dt);
-      if (index % state.interval === 0 && projector.state.status === 'ready') {
-        for (let attempt = 0; attempt < 4; attempt++) {
-          const before = projector.state.presented;
-          await projector.frame();
-          if (projector.state.presented > before) break;
-          await new Promise(resolve => setTimeout(resolve, 200));
-        }
-      }
+      if (index % state.interval === 0) await projector.recordFrame();
       ribbon.sync();
       projector.update(dt);
       studio.update(index * dt);

@@ -113,6 +113,11 @@ box: `node headless/render.mjs --seconds 8 --engine best --out clip.mp4`, or the
 `headless/Dockerfile`. It drives the same page in headless Chromium, writes a PNG per frame and
 encodes with ffmpeg. See [headless/README.md](headless/README.md).
 
+Recording waits for the current photo's depth to finish, clears live requests, and then
+captures each generated image from the pose being exported. If generation fails, the export
+stops with an error rather than silently repeating old projected images. The headless renderer
+also pauses the live animation while it waits for each generated frame.
+
 ## Frame rate
 
 The studio measures its own frame time and holds the rate above **Performance › minimum fps**
