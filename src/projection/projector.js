@@ -23,6 +23,31 @@ import { createDepthRaster, rasterDepth, buildStructure, downsampleGray, rotateQ
  * headless/serve.mjs — a rented GPU box, say — which proxies /projector on the
  * same origin, so there is no CORS and no mixed content.
  */
+/**
+ * How generated frames travel. Raw RGBA costs nothing to decode and is right on
+ * the loopback; across the internet it is 590 KB a frame at 384 px, so a remote
+ * service answers in JPEG, about a tenth of that.
+ */
+export function wireFormat(endpoint) {
+  try {
+    return ['127.0.0.1', 'localhost', '[::1]'].includes(new URL(endpoint).hostname) ? 'rgba' : 'jpeg';
+  } catch {
+    return 'rgba';
+  }
+}
+
+let decodeCanvas = null;
+/** A JPEG answer back to the same bytes an RGBA answer carries (rows already bottom-up). */
+async function decodeFrame(blob, size) {
+  const bitmap = await createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
+  decodeCanvas ||= new OffscreenCanvas(size, size);
+  if (decodeCanvas.width !== size) decodeCanvas.width = decodeCanvas.height = size;
+  const context = decodeCanvas.getContext('2d', { willReadFrequently: true });
+  context.drawImage(bitmap, 0, 0);
+  bitmap.close();
+  return new Uint8Array(context.getImageData(0, 0, size, size).data.buffer);
+}
+
 export function defaultEndpoint(where = typeof location === 'undefined' ? null : location) {
   if (!where) return 'http://127.0.0.1:5193';
   const local = where.hostname.endsWith('github.io') || where.port === '5190';
@@ -296,7 +321,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       const body = packFrame({
         frame_id: frameId, size: params.size, prompt: params.prompt, seed: params.seed,
         guidance: params.guidance, drift: params.wander ? params.drift : 0, drift_phase: state.driftPhase,
-        format: 'rgba', priority: params.priority,
+        format: wireFormat(state.endpoint), priority: params.priority,
         engine: params.engine,
         steps: params.steps || undefined,
         cfg: params.cfg ?? undefined,
@@ -316,7 +341,9 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       if (response.status === 503) { state.status = 'loading'; return; }
       if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
       const tHeaders = performance.now();
-      const received = new Uint8Array(await response.arrayBuffer());
+      const received = response.headers.get('Content-Type')?.startsWith('image/jpeg')
+        ? await decodeFrame(await response.blob(), params.size)
+        : new Uint8Array(await response.arrayBuffer());
       const tBody = performance.now();
       if (received.length !== params.size * params.size * 4) throw new Error(`unexpected frame size ${received.length}`);
       // turn the answer back onto the veil (one more quarter turn, see rotateQuarter)

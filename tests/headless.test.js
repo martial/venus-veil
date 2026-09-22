@@ -65,7 +65,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { serveDirectory } from '../headless/serve.mjs';
-import { defaultEndpoint } from '../src/projection/projector.js';
+import { defaultEndpoint, wireFormat } from '../src/projection/projector.js';
 
 const get = (url, headers = {}) => new Promise((resolve, reject) => {
   http.get(url, { headers }, response => {
@@ -101,4 +101,11 @@ test('the page finds its diffusion service wherever it is served', () => {
   assert.equal(defaultEndpoint(at('https://martial.github.io/venus-veil/')), 'http://127.0.0.1:5193', 'published page');
   assert.equal(defaultEndpoint(at('https://abc123-5191.proxy.runpod.net/')), 'https://abc123-5191.proxy.runpod.net/projector', 'a pod');
   assert.equal(defaultEndpoint(null), 'http://127.0.0.1:5193');
+});
+
+test('frames travel raw on the loopback and as JPEG across the internet', () => {
+  assert.equal(wireFormat('http://127.0.0.1:5193'), 'rgba');
+  assert.equal(wireFormat('http://localhost:5191/projector'), 'rgba');
+  assert.equal(wireFormat('https://abc123-8888.proxy.runpod.net/projector'), 'jpeg');
+  assert.equal(wireFormat('not a url'), 'rgba');
 });

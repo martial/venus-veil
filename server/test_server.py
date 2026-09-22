@@ -103,6 +103,14 @@ class EncodeTest(unittest.TestCase):
         self.assertTrue(png.startswith(b'\x89PNG'))
         self.assertNotIn('generator', sys.modules)
 
+    def test_jpeg_for_remote_pages(self):
+        import numpy as np
+        from server import encode_jpeg
+        frame, _ = parse_frame(pack({'size': 256, 'format': 'jpeg'}, bytes(256 * 256)), (256,))
+        self.assertEqual(frame['format'], 'jpeg')
+        jpeg = encode_jpeg(np.full((64, 64, 3), 128, dtype=np.uint8))
+        self.assertTrue(jpeg.startswith(b'\xff\xd8'))
+
 
 if __name__ == '__main__':
     unittest.main()

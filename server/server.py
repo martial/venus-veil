@@ -84,7 +84,7 @@ def parse_frame(body, allowed_sizes=(128, 192, 256, 384, 512)):
         'guidance': max(.1, min(2., float(meta.get('guidance', .85)))),
         'drift': max(0., min(1., float(meta.get('drift', 0)))),
         'drift_phase': max(0., min(1e6, float(meta.get('drift_phase', 0)))),
-        'format': 'rgba' if meta.get('format') == 'rgba' else 'png',
+        'format': meta.get('format') if meta.get('format') in ('rgba', 'jpeg') else 'png',
         'priority': bool(meta.get('priority')),
         'engine': meta.get('engine') if meta.get('engine') in ENGINES else 'fast',
         'cn_scale': max(0.2, min(1.6, float(meta['cn_scale']))) if meta.get('cn_scale') is not None else None,
@@ -209,6 +209,15 @@ def encode_png(rgb):
     return buffer.getvalue()
 
 
+def encode_jpeg(rgb, quality=92):
+    import io
+    from PIL import Image
+    buffer = io.BytesIO()
+    # full-resolution colour: chroma subsampling would soften the fine stone detail
+    Image.fromarray(rgb).save(buffer, format='JPEG', quality=quality, subsampling=0)
+    return buffer.getvalue()
+
+
 def release_idle_engine():
     """Give the quality engine's memory back when nothing has used it for a while."""
     global quality
@@ -297,6 +306,10 @@ def create_app(load=True):
                     rgba[..., :3] = rgb[::-1]
                     rgba[..., 3] = 255
                     return rgba.tobytes(), stages
+                if frame['format'] == 'jpeg':
+                    # for a page across the internet: a tenth of the bytes, rows in the
+                    # same bottom-up order as rgba so the page treats both alike
+                    return encode_jpeg(np.ascontiguousarray(rgb[::-1])), stages
                 return encode_png(rgb), stages
             payload, stages = await run_in_threadpool(work)
         except Exception as error:  # noqa: BLE001
@@ -306,7 +319,8 @@ def create_app(load=True):
         state['generated'] += 1
         state['last_ms'] = stages['total_ms']
         engine_object = quality if frame['engine'] != 'fast' else generator
-        return Response(payload, media_type='image/png' if frame['format'] == 'png' else 'application/octet-stream', headers={
+        media = {'png': 'image/png', 'jpeg': 'image/jpeg'}.get(frame['format'], 'application/octet-stream')
+        return Response(payload, media_type=media, headers={
             'X-Frame-Id': str(frame['frame_id']),
             'X-Inference-Ms': str(stages['total_ms']),
             'X-Engine': frame['engine'],
