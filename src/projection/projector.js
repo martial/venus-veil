@@ -93,6 +93,7 @@ export const PROJECTOR_DEFAULTS = {
   liveInterval: 1,     // re-rasterise live occlusion every n frames (raised by the frame budget)
   physicsRelief: 0.25, // while projecting, how much of the sculpture still shapes the cloth
   live: 'auto',        // real-time preset (LIVE_PRESETS): resolution and rate of live projection
+  reference: 1,        // how strongly the dropped photo shows in the image, where the service takes it (0 = not at all)
   inFlight: 0,         // requests on the wire at once; 0 = 1 on this machine, enough for the rate across the internet
 };
 
@@ -109,7 +110,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
   const state = {
     status: 'offline', error: null, model: null, device: null,
     endpoint: defaultEndpoint(),
-    busy: false, inFlight: 0, roundTripMs: 0, requested: 0, presented: 0, lastPresentedId: 0, liveApplied: null, fps: 0, latencyMs: 0, inferenceMs: 0, sizes: [256],
+    busy: false, inFlight: 0, roundTripMs: 0, references: false, referenceId: null, requested: 0, presented: 0, lastPresentedId: 0, liveApplied: null, fps: 0, latencyMs: 0, inferenceMs: 0, sizes: [256],
     engines: ['fast'], engine: 'fast', perFrameMs: {},   // measured cost of each engine
     resetCarry: false,
     driftPhase: 0, driftLabel: 'base prompt', slot: 1,
@@ -289,6 +290,8 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       state.device = h.device;
       if (Array.isArray(h.sizes) && h.sizes.length) state.sizes = h.sizes;
       if (Array.isArray(h.engines) && h.engines.length) state.engines = h.engines;
+      state.references = !!h.references;
+      if (state.status === 'ready') ensureReference();
       // a recording (priority) owns the size until it ends
       if (state.status === 'ready' && !params.priority) {
         // the real-time preset depends on what the service runs on; apply it once that is known
@@ -340,7 +343,35 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     return resolved;
   }
 
+  // ------------------------------------------------------------ the dropped photo
+  // Uploaded once to a service that takes image prompts; frames then name it by id.
+  let referenceBlob = null, referenceUpload = null;
+
+  function setReference(blob) {
+    referenceBlob = blob || null;
+    state.referenceId = null;
+    referenceUpload = null;
+    ensureReference();
+  }
+
+  function ensureReference() {
+    if (!referenceBlob || state.referenceId || !state.references || state.status !== 'ready') return referenceUpload;
+    if (referenceUpload) return referenceUpload;
+    const blob = referenceBlob;
+    referenceUpload = fetch(`${state.endpoint}/reference`, { method: 'POST', body: blob, headers: { 'Content-Type': blob.type } })
+      .then(async response => {
+        if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
+        const { id } = await response.json();
+        if (blob === referenceBlob) state.referenceId = id;
+      })
+      .catch(error => console.warn('[projector] photo upload failed', error))
+      .finally(() => { if (blob === referenceBlob) referenceUpload = null; });
+    return referenceUpload;
+  }
+
   async function requestFrame() {
+    // a recording waits for the photo, so its first frames have it too
+    if (params.priority && referenceBlob && state.references && !state.referenceId) await ensureReference();
     const pending = captures.find(c => !c.busy);
     if (!pending) return;
     pending.busy = true;
@@ -380,6 +411,8 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
         carry: params.carry,
         cn_scale: params.cnScale || undefined,
         reset: state.resetCarry || undefined,
+        reference: params.reference > 0 ? state.referenceId || undefined : undefined,
+        reference_scale: params.reference,
       }, params.upright ? rotateQuarter(pending.model, params.size, pending.turned) : pending.model);
       state.resetCarry = false;
       // across the internet the upload is most of the wait: send it compressed
@@ -393,6 +426,8 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       if (epoch !== generation) return;
       if (response.status === 429) { lastRequest = performance.now() + 60; return; }
       if (response.status === 503) { state.status = 'loading'; return; }
+      // the service restarted and forgot the photo: send it again, the next frame will have it
+      if (response.status === 409) { state.referenceId = null; ensureReference(); return; }
       if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
       const tHeaders = performance.now();
       const received = response.headers.get('Content-Type')?.startsWith('image/jpeg')
@@ -600,7 +635,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
   setSize(params.size);
 
   const api = {
-    params, state, camera, buildControls, setEnabled, update, health, clearSlots, setSize, applyLive,
+    params, state, camera, buildControls, setEnabled, update, health, clearSlots, setSize, applyLive, setReference,
     onLive: null,       // (name, preset) => void, when the real-time preset is applied
     /** Re-apply params that were changed in bulk (a look preset). */
     refresh() { bindSlots(); applySurface(); applyPhysicsRelief(); report(); },

@@ -43,6 +43,8 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
     projector.onLive = resolved => { describe(resolved); refresh(); };
     // how many new images live projection asks for; frames in between crossfade
     gui.add(projector.params, 'maxFps', 1, 60, 1).name('images per second');
+    // the dropped photo as an image prompt (a GPU server with the adapter; no effect elsewhere)
+    gui.add(projector.params, 'reference', 0, 2, 0.05).name('photo in image');
   }
 
   gui.add(wind.params, 'speed', 0, 5, 0.01).name('wind');

@@ -108,6 +108,23 @@ class GzipBodyTest(unittest.TestCase):
             parse_frame(b'\x1f\x8b' + b'not gzip at all', (256,))
 
 
+class ReferenceFieldTest(unittest.TestCase):
+    def test_photo_id_and_strength(self):
+        frame, _ = parse_frame(pack({'size': 256, 'reference': '0123456789abcdef', 'reference_scale': 5}, bytes(256 * 256)), (256,))
+        self.assertEqual(frame['reference'], '0123456789abcdef')
+        self.assertEqual(frame['reference_scale'], 2.0)
+        for bad in ('../etc/passwd', 'ABCDEF0123456789', 123, '0123'):
+            frame, _ = parse_frame(pack({'size': 256, 'reference': bad}, bytes(256 * 256)), (256,))
+            self.assertIsNone(frame['reference'], bad)
+        self.assertEqual(frame['reference_scale'], 1.0)
+
+    def test_reference_refused_without_adapter(self):
+        from fastapi.testclient import TestClient
+        from server import create_app
+        client = TestClient(create_app(load=False))
+        self.assertEqual(client.post('/reference', content=b'\xff\xd8 not really').status_code, 501)
+
+
 class EncodeTest(unittest.TestCase):
     def test_png_without_core_ml(self):
         # a Linux service has no coremltools: answering must not import generator.py

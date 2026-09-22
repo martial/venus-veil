@@ -20,6 +20,7 @@ import gc
 import gzip
 import json
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -50,15 +51,21 @@ IDLE_RELEASE_S = 180                    # the quality engine gives its memory ba
 
 state = {'status': 'loading', 'model': 'IDKiro/sdxs-512-dreamshaper + sketch ControlNet', 'device': 'coreml (cpu/gpu/ane)',
          'error': None, 'generated': 0, 'last_ms': None, 'sizes': [256], 'engine': 'fast',
-         'engines': ['fast'], 'engine_error': None}
+         'engines': ['fast'], 'engine_error': None, 'references': False}
 lock = threading.Lock()
-generator = None          # the fast Core ML engine
+REFERENCE_ID = re.compile(r'[0-9a-f]{16}')
+generator = None          # the fast engine (Core ML on a Mac, PyTorch on a server)
+photos = None             # dropped photos as image prompts (reference.py), on a server
 quality = None            # the multi-step engine, loaded on demand
 last_quality_use = 0.0
 
 
 class FrameError(ValueError):
     pass
+
+
+class UnknownReference(LookupError):
+    """A frame names a photo this service does not hold (it restarted): the page uploads it again."""
 
 
 def parse_frame(body, allowed_sizes=(128, 192, 256, 384, 512)):
@@ -103,6 +110,10 @@ def parse_frame(body, allowed_sizes=(128, 192, 256, 384, 512)):
         'carry': max(0., min(0.95, float(meta['carry']))) if meta.get('carry') is not None else None,
         'negative': str(meta.get('negative'))[:600] if meta.get('negative') else None,
         'reset': bool(meta.get('reset')),
+        # the dropped photo, by the id /reference gave it, and how strongly it shows
+        'reference': meta['reference'] if isinstance(meta.get('reference'), str)
+                     and REFERENCE_ID.fullmatch(meta['reference']) else None,
+        'reference_scale': max(0., min(2., float(meta.get('reference_scale', 1.)))),
     }
     return frame, pixels
 
@@ -156,13 +167,18 @@ def load_without_coreml(reason):
         print(f'projector has no engine: {reason}', flush=True)
         return
     started = time.perf_counter()
+    import reference
     state.update(engines=engines, engine='unloaded', device=quality_module.pick_device(), sizes=[256, 384, 512, 768],
+                 references=reference.available(),
                  model='SDXS DreamShaper + sketch ControlNet (live) · DreamShaper 8 + depth ControlNet (recording)')
     # load them now rather than on the first frame: over a proxy that first frame
     # would time out while the weights come off disk
+    global photos
     with lock:
         for name in [e for e in ('fine', 'fast') if e in engines]:
             use_engine(name)
+        if state['references']:
+            photos = reference.ReferenceStore()     # the photo encoder too: the first drop answers at once
     state.update(status='ready', load_s=round(time.perf_counter() - started, 1))
     print(f'projector ready in {state["load_s"]} s · engines {", ".join(engines)} · {state["device"]} (no Core ML here)',
           flush=True)
@@ -279,6 +295,29 @@ def create_app(load=True):
             response.headers['Access-Control-Allow-Private-Network'] = 'true'
         return response
 
+    @app.post('/reference')
+    async def add_reference(request: Request):
+        """A dropped photo, encoded once; frames then name it by the id returned here."""
+        if not state.get('references'):
+            return Response('this service takes no photo prompts (it needs a GPU server with the adapter)', status_code=501)
+        data = await request.body()
+        if not data or len(data) > 8_000_000:
+            return Response('send one image, up to 8 MB', status_code=400)
+        await run_in_threadpool(lock.acquire)
+        try:
+            def work():
+                global photos
+                if photos is None:
+                    import reference
+                    photos = reference.ReferenceStore()
+                return photos.add(data)
+            key = await run_in_threadpool(work)
+        except Exception as error:  # noqa: BLE001
+            return Response(f'could not read the photo: {error}', status_code=400)
+        finally:
+            lock.release()
+        return {'id': key}
+
     @app.get('/health')
     async def health():
         release_idle_engine()
@@ -309,11 +348,17 @@ def create_app(load=True):
                 import numpy as np
                 engine = use_engine(frame['engine'], preset_reset=frame['reset'])
                 depth = np.frombuffer(pixels, dtype=np.uint8).reshape(frame['size'], frame['size'])
+                photo = None
+                if frame['reference']:
+                    photo = photos.get(frame['reference']) if photos else None
+                    if photo is None:
+                        raise UnknownReference(frame['reference'])
+                with_photo = {'photo': photo, 'photo_scale': frame['reference_scale']} if photos else {}
                 if state['engine'] == 'fast':
                     if frame['size'] != engine.size:
                         engine.load_size(frame['size'])
                     rgb, stages = engine.generate(depth, frame['prompt'], frame['seed'], frame['guidance'],
-                                                  frame['drift'], frame['drift_phase'])
+                                                  frame['drift'], frame['drift_phase'], **with_photo)
                 else:
                     # a live frame on a box without Core ML: the multi-step engine stands in,
                     # at the few steps LCM needs, so live projection keeps moving
@@ -321,7 +366,7 @@ def create_app(load=True):
                     rgb, stages = engine.generate(depth, frame['prompt'], frame['seed'], frame['guidance'],
                                                   frame['drift'], frame['drift_phase'], steps=steps,
                                                   cfg=frame['cfg'], carry=frame['carry'], negative=frame['negative'],
-                                                  cn_scale=frame['cn_scale'])
+                                                  cn_scale=frame['cn_scale'], **with_photo)
                 if frame['format'] == 'rgba':
                     rgba = np.empty((rgb.shape[0], rgb.shape[1], 4), dtype=np.uint8)
                     rgba[..., :3] = rgb[::-1]
@@ -333,6 +378,8 @@ def create_app(load=True):
                     return encode_jpeg(np.ascontiguousarray(rgb[::-1])), stages
                 return encode_png(rgb), stages
             payload, stages = await run_in_threadpool(work)
+        except UnknownReference:
+            return Response('unknown reference: upload the photo again', status_code=409)
         except Exception as error:  # noqa: BLE001
             return Response(f'generation failed: {error}', status_code=500)
         finally:

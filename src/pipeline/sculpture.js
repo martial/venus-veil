@@ -70,6 +70,23 @@ export function createSculpturePipeline({ solver, material, ribbon, renderer, to
     return small;
   }
 
+  /**
+   * The photo itself, for a service that takes it as an image prompt: square and
+   * letterboxed on black, because the image encoder crops to a centred square and
+   * would cut the head or feet off a standing figure.
+   */
+  async function photoBlob(bitmap) {
+    const side = 512;
+    const scale = side / Math.max(bitmap.width, bitmap.height);
+    const w = Math.round(bitmap.width * scale), h = Math.round(bitmap.height * scale);
+    const canvas = new OffscreenCanvas(side, side);
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#000';
+    context.fillRect(0, 0, side, side);
+    context.drawImage(bitmap, (side - w) / 2, (side - h) / 2, w, h);
+    return canvas.convertToBlob({ type: 'image/jpeg', quality: 0.9 });
+  }
+
   async function loadSource(source, name) {
     const generation = ++state.generation;
     state.busy = true;
@@ -78,10 +95,13 @@ export function createSculpturePipeline({ solver, material, ribbon, renderer, to
       const bitmap = await decode(source);
       if (generation !== state.generation) { bitmap.close(); return; }
       state.name = name;
+      // copied before the worker takes the bitmap
+      const photo = await photoBlob(bitmap).catch(() => null);
       setProgress(worker.ready ? 'estimating depth' : 'loading depth model', 8);
       const result = await worker.process(bitmap, snapshotParams(), grid);
       if (generation !== state.generation) { closeResult(result); return; }
       apply(result, true);
+      api.onPhoto?.(photo, name);
       setProgress('sculpture woven into the veil', 100);
       hideProgress();
       toast(`${name}: depth via ${result.backend?.device} in ${result.depthMs} ms`);
@@ -205,6 +225,7 @@ export function createSculpturePipeline({ solver, material, ribbon, renderer, to
     solver.params.reveal = 1;
     if (elements.thumbs) elements.thumbs.hidden = true;
     if (elements.dropHint) elements.dropHint.textContent = 'Drop a sculpture photo anywhere · drag to orbit · move the pointer through the veil to push it';
+    api.onPhoto?.(null, null);
     toast('sculpture cleared');
   }
 
@@ -263,8 +284,9 @@ export function createSculpturePipeline({ solver, material, ribbon, renderer, to
     folder.add(actions, 'clear').name('clear sculpture');
   }
 
-  return {
+  const api = {
     params, state,
+    onPhoto: null,     // (jpeg blob | null, name) => void, when a photo is woven in or cleared
     /** Hold back status messages while something else owns the progress line. */
     setQuiet(value) { quiet.value = value; },
     get backend() { return worker.backend; },
@@ -272,4 +294,5 @@ export function createSculpturePipeline({ solver, material, ribbon, renderer, to
     preload: () => worker.load().catch(err => console.warn('[depth] preload failed', err)),
     dispose() { worker.dispose(); disposeTextures(); },
   };
+  return api;
 }

@@ -106,6 +106,13 @@ class TorchDepthGenerator:
         # On CUDA there is memory to spare and slicing only costs speed.
         if self.device != 'cuda':
             self.pipe.enable_vae_slicing()
+        # the dropped photo as an image prompt, on a server card (see reference.py)
+        import reference
+        self.referencing = self.device == 'cuda' and reference.available()
+        if self.referencing:
+            self.pipe.load_ip_adapter(str(reference.snapshot()), subfolder='models',
+                                      weight_name='ip-adapter_sd15.safetensors', image_encoder_folder=None)
+            self.no_reference = torch.zeros(1, 1, 1024, device=self.device, dtype=self.dtype)
         self.lcm_loaded = False
         self.lcm_fused = False
 
@@ -176,7 +183,8 @@ class TorchDepthGenerator:
         self.reset_carry()
 
     def generate(self, depth, prompt, seed=42, guidance=None, drift=0., drift_phase=0.,
-                 steps=None, cfg=None, carry=None, negative=None, cn_scale=None, cn_end=None):
+                 steps=None, cfg=None, carry=None, negative=None, cn_scale=None, cn_end=None,
+                 photo=None, photo_scale=1.):
         """depth: uint8 (size, size), 0 = empty, brighter = nearer."""
         started = time.perf_counter()
         size = int(depth.shape[0])
@@ -203,8 +211,15 @@ class TorchDepthGenerator:
         prepared = time.perf_counter()
 
         generator = torch.Generator(device='cpu').manual_seed(int(seed))
+        extra = {}
+        if self.referencing:
+            self.pipe.set_ip_adapter_scale(photo_scale if photo is not None else 0.)
+            embeds = photo if photo is not None else self.no_reference
+            # with guidance the pipeline expects the unconditional half first
+            extra['ip_adapter_image_embeds'] = [torch.cat([torch.zeros_like(embeds), embeds]) if cfg > 1 else embeds]
         with torch.inference_mode():
             result = self.pipe(
+                **extra,
                 prompt=prompt,
                 negative_prompt=negative or NEGATIVE,
                 image=init,

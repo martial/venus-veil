@@ -19,6 +19,13 @@ MODELS = [
     ('IDKiro/sdxs-512-dreamshaper-sketch', ['*.json', '*.bin']),
 ]
 
+# The dropped photo as an image prompt (reference.py): the adapter and its CLIP
+# image encoder, ~2.6 GB. Fetched on a server; on a Mac pass --photo.
+PHOTO = [('h94/IP-Adapter', ['models/ip-adapter_sd15.safetensors', 'models/image_encoder/*'])]
+
 if __name__ == '__main__':
+    import sys
+    if sys.platform != 'darwin' or '--photo' in sys.argv:
+        MODELS += PHOTO
     for repo, patterns in MODELS:
         print(f'{repo} -> {snapshot_download(repo, cache_dir=CACHE, allow_patterns=patterns)}', flush=True)

@@ -333,6 +333,9 @@ async function start() {
     toggleUI() { document.body.classList.toggle('ui-hidden'); },
     record: () => recordVideo(),
   };
+  // the photo reaches the image model as an image prompt, where the service takes one
+  sculpture.onPhoto = photo => projector.setReference(photo);
+
   const ui = createUI({ wind, solver, material, studio, post, actions, sculpture, projector, quality, applyQuality, exportSettings, recording });
   window.addEventListener('keydown', e => {
     if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return;

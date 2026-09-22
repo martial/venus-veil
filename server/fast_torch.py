@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+import reference
 from drift import DRIFT_STYLES
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,8 +54,13 @@ class TorchSketchGenerator:
         self.decoder = AutoencoderTiny.from_pretrained(MODEL, subfolder='vae', use_safetensors=True, **load).decoder
         self.encoder = CLIPTextModel.from_pretrained(MODEL, subfolder='text_encoder', use_safetensors=True, **load)
         self.tokenizer = CLIPTokenizer.from_pretrained(MODEL, subfolder='tokenizer', cache_dir=CACHE)
+        # the dropped photo as an image prompt, when the adapter is installed (see reference.py)
+        self.referencing = reference.available()
+        if self.referencing:
+            reference.attach_to_sdxs(self.unet)
+            self.no_reference = torch.zeros(1, 1, 1024, device=device, dtype=self.dtype)
         for module in (self.unet, self.control, self.decoder, self.encoder):
-            module.to(device).eval()
+            module.to(device, self.dtype).eval()
         config = EulerDiscreteScheduler.from_pretrained(MODEL, subfolder='scheduler', cache_dir=CACHE).config
         betas = np.linspace(config['beta_start'] ** .5, config['beta_end'] ** .5,
                             config['num_train_timesteps'], dtype=np.float32) ** 2
@@ -95,7 +101,7 @@ class TorchSketchGenerator:
         blank[self.size // 4: -self.size // 4, self.size // 4: -self.size // 4] = 160
         self.generate(blank, prompt)
 
-    def generate(self, depth, prompt, seed=42, guidance=.85, drift=0., drift_phase=0.):
+    def generate(self, depth, prompt, seed=42, guidance=.85, drift=0., drift_phase=0., photo=None, photo_scale=1.):
         """depth: uint8 (size, size), 0 = empty, brighter = nearer. Returns (RGB uint8, stages)."""
         started = time.perf_counter()
         self.load_size(int(depth.shape[0]))
@@ -125,9 +131,13 @@ class TorchSketchGenerator:
             prepared = time.perf_counter()
             down, mid = self.control(sample, self.timestep, encoder_hidden_states=text, controlnet_cond=structure,
                                      conditioning_scale=CONDITIONING, return_dict=False)
+            extra = {}
+            if self.referencing:
+                reference.set_scale(self.unet, photo_scale if photo is not None else 0.)
+                extra['added_cond_kwargs'] = {'image_embeds': [photo if photo is not None else self.no_reference]}
             prediction = self.unet(sample, self.timestep, encoder_hidden_states=text,
                                    down_block_additional_residuals=down, mid_block_additional_residual=mid,
-                                   return_dict=False)[0]
+                                   return_dict=False, **extra)[0]
             denoised = (self.noise - self.sqrt_b * prediction.float()) / self.sqrt_a
             torch.cuda.synchronize()
             unet_done = time.perf_counter()
