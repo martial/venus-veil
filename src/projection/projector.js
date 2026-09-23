@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { createDepthRaster, rasterDepth, buildStructure, downsampleGray, rotateTurns, turnTransform, packFrame } from './rasterDepth.js';
-import { LIVE_PRESETS, pickSize, resolveLive, promptForReference } from '../presets.js';
+import { LIVE_PRESETS, pickSize, resolveLive, promptForReference, guidedPrompt } from '../presets.js';
 import { createReferenceUpload } from './reference.js';
 import { createLiveTransport } from './liveTransport.js';
 import { createLiveClock } from './liveClock.js';
@@ -61,6 +61,7 @@ export const PROJECTOR_DEFAULTS = {
   show: 'generated',
   running: true,
   prompt: 'a prehistoric Venus figurine, full body, heavy breasts, round belly, braided head, carved from weathered limestone, museum spotlight, black background',
+  guide: '',          // the viewer's free text, put in front of the prompt on every frame
   seed: 42,
   guidance: 1.1,
   emphasis: 0,        // 0 = the capture is the wind-shaped cloth alone; raise it to paint
@@ -466,7 +467,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       const referenceId = params.reference > 0 ? state.referenceId : null;
       const body = packFrame({
         frame_id: frameId, size: params.size, sequence,
-        prompt: referenceId ? promptForReference(params.prompt, state.referenceCaption) : params.prompt,
+        prompt: guidedPrompt(params.guide, referenceId ? promptForReference(params.prompt, state.referenceCaption) : params.prompt),
         seed: params.seed,
         guidance: params.guidance, drift: params.wander ? params.drift : 0, drift_phase: state.driftPhase,
         format: wireFormat(state.endpoint), priority: params.priority,

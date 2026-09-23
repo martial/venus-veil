@@ -3,7 +3,7 @@ import { IMAGE_ENGINES, modelLabel, modelNote } from './projection/models.js';
 import { resolveExportSettings } from './projection/exportSettings.js';
 import { applyModelPreset, applyMorphPreset, createModelSettingsBank, modelControlSpecs, MODEL_SETTINGS_NOTES, selectedModelPreset, selectedMorphPreset } from './projection/modelSettings.js';
 import { isFluxModel } from './projection/morph.js';
-import { LIVE_PRESETS, PRESETS, applyPreset, resolveLive } from './presets.js';
+import { GUIDE_MAX, LIVE_PRESETS, PRESETS, applyPreset, resolveLive } from './presets.js';
 import { QUALITIES, RESOLUTIONS } from './record.js';
 import { TURN_OPTIONS } from './projection/projector.js';
 
@@ -137,6 +137,18 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
     modelControls(gui, 'Live model settings', projector.params, () => projector.applyModelSettings());
     // how many new images live projection asks for; frames in between crossfade
     gui.add(projector.params, 'maxFps', 1, 60, 1).name('images per second');
+    // free guide for the current generation: sent with the next frame, in front of the look's prompt
+    const guide = { text: projector.params.guide };
+    let guideTimer = 0;
+    const applyGuide = () => { clearTimeout(guideTimer); projector.params.guide = guide.text; };
+    const guideController = gui.add(guide, 'text').name('guide')
+      .onChange(() => { clearTimeout(guideTimer); guideTimer = setTimeout(applyGuide, 300); })
+      .onFinishChange(applyGuide);
+    const guideInput = guideController.domElement.querySelector('input');
+    guideInput.placeholder = 'e.g. smiling, eyes closed, gold leaf';
+    guideInput.maxLength = GUIDE_MAX;
+    guideInput.addEventListener('keydown', e => { if (e.key === 'Enter') applyGuide(); });
+    guideController.domElement.title = 'Texte libre ajouté devant le prompt du look, à chaque image : la génération suit en direct. Vide = le look seul.';
   }
 
   gui.add(wind.params, 'speed', 0, 5, 0.01).name('wind');

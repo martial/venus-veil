@@ -106,6 +106,18 @@ export function promptForReference(prompt, caption = '') {
   return `${caption.trim() || 'a detailed sculpture'}, ${preset.photoStyle}`;
 }
 
+/** Longest guide kept: the one-step engines read about 77 tokens of text in all. */
+export const GUIDE_MAX = 200;
+
+/**
+ * The viewer's free guide, put in front of the current prompt (look + photo subject)
+ * rather than replacing it, so it survives the text encoder's cut-off at the end.
+ */
+export function guidedPrompt(guide, prompt) {
+  const text = String(guide ?? '').replace(/\s+/g, ' ').trim().slice(0, GUIDE_MAX).replace(/[\s,.;]+$/, '');
+  return text ? `${text}, ${prompt}` : prompt;
+}
+
 /** Parameters that only change pixels in the sculpture's textures, not physics. */
 const TEXTURE_KEYS = ['tintStrength', 'detail', 'figureOpacity', 'veilOpacity'];
 

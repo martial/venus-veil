@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createReferenceUpload } from '../src/projection/reference.js';
-import { PRESETS, promptForReference } from '../src/presets.js';
+import { GUIDE_MAX, PRESETS, guidedPrompt, promptForReference } from '../src/presets.js';
 
 const A = '0123456789abcdef', B = 'fedcba9876543210';
 const photo = () => new Blob(['photo'], { type: 'image/jpeg' });
@@ -109,4 +109,13 @@ test('every look takes its subject from the photo, and preserves the selected fi
   }
   const custom = 'a red balloon floating over water';
   assert.equal(promptForReference(custom, 'a green dragon'), custom);
+});
+
+test('a guide goes in front of the prompt, and an empty guide leaves it alone', () => {
+  const prompt = promptForReference(PRESETS.bronze.projector.prompt, 'a green dragon');
+  assert.equal(guidedPrompt('', prompt), prompt);
+  assert.equal(guidedPrompt('   ', prompt), prompt);
+  assert.equal(guidedPrompt(undefined, prompt), prompt);
+  assert.equal(guidedPrompt('  smiling,\n eyes closed ,  ', prompt), `smiling, eyes closed, ${prompt}`);
+  assert.ok(guidedPrompt('x'.repeat(1000), prompt).startsWith(`${'x'.repeat(GUIDE_MAX)}, `));
 });
