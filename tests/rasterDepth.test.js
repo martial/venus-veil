@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { createDepthRaster, rasterDepth, buildStructure, downsampleGray, rotateQuarter, packFrame, EMPTY_DEPTH } from '../src/projection/rasterDepth.js';
+import { createDepthRaster, rasterDepth, buildStructure, downsampleGray, rotateQuarter, rotateTurns, turnTransform, packFrame, EMPTY_DEPTH } from '../src/projection/rasterDepth.js';
 
 function viewProjection(position = [0, 0, 0], target = [0, 0, -1]) {
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 50);
@@ -151,4 +151,41 @@ test('rotateQuarter turns the capture, and one more turn puts the answer back', 
   const rgba = Uint8Array.from({ length: n * 4 }, (_, i) => i);
   const turned = turn(rgba, 4);
   assert.deepEqual(Array.from(turned.subarray(0, 4)), Array.from(rgba.subarray((size - 1) * size * 4, (size - 1) * size * 4 + 4)));
+});
+
+test('rotateTurns: k turns are k quarter turns, and k turns of the bottom-up answer undo them', () => {
+  const size = 5, n = size * size;
+  const src = Uint8Array.from({ length: n }, (_, i) => i + 1);
+  const quarter = buf => rotateQuarter(buf, size, new Uint8Array(n));
+  const flip = buf => {
+    const out = new Uint8Array(buf.length);
+    for (let y = 0; y < size; y++) out.set(buf.subarray((size - 1 - y) * size, (size - y) * size), y * size);
+    return out;
+  };
+  let expected = src;
+  for (let k = 0; k < 4; k++) {
+    const turned = rotateTurns(src, size, new Uint8Array(n), k);
+    assert.deepEqual(Array.from(turned), Array.from(expected), `${k} turns`);
+    const back = flip(rotateTurns(flip(turned), size, new Uint8Array(n), k));
+    assert.deepEqual(Array.from(back), Array.from(src), `${k} turns come back`);
+    const rgba = Uint8Array.from({ length: n * 4 }, (_, i) => i % 251);
+    const words = rotateTurns(rgba, size, new Uint8Array(n * 4), k, 4);
+    const unaligned = new Uint8Array(n * 4 + 1).subarray(1);
+    unaligned.set(rgba);
+    const slow = rotateTurns(unaligned, size, new Uint8Array(n * 4 + 1).subarray(1), k, 4); // per-channel path
+    assert.deepEqual(Array.from(slow), Array.from(words), `${k} turns, rgba paths agree`);
+    expected = quarter(expected);
+  }
+});
+
+test('turnTransform maps the canvas like the array turns', () => {
+  const size = 8;
+  for (let k = 0; k < 4; k++) {
+    const [a, b, c, d, e, f] = turnTransform(k, size);
+    // centre of pixel (x, y) of the source lands on the centre of its turned pixel
+    const x = 1.5, y = 2.5;
+    const X = a * x + c * y + e, Y = b * x + d * y + f;
+    const sx = [x, Y, size - X, size - Y][k], sy = [y, size - X, size - Y, X][k];
+    assert.ok(Math.abs(sx - x) < 1e-9 && Math.abs(sy - y) < 1e-9, `${k} turns`);
+  }
 });

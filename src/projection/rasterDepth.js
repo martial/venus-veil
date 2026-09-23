@@ -202,27 +202,41 @@ export function downsampleGray(src, srcSize, dst, dstSize) {
  * flipping vertically conjugates a quarter turn into its opposite.
  */
 export function rotateQuarter(src, size, dst, channels = 1) {
+  return rotateTurns(src, size, dst, 1, channels);
+}
+
+/**
+ * `turns` quarter turns (0..3, any integer is reduced) of a square image.
+ * As with rotateQuarter, the same number of turns applied to the bottom-up
+ * answer puts it back where the capture came from. 0 turns copies.
+ */
+export function rotateTurns(src, size, dst, turns, channels = 1) {
+  const k = ((Math.round(turns) % 4) + 4) % 4;
   // Copy RGBA pixels as words, rather than four JS channel iterations each.
   if (channels === 4 && src.byteOffset % 4 === 0 && dst.byteOffset % 4 === 0) {
-    rotateQuarter(new Uint32Array(src.buffer, src.byteOffset, size * size), size,
-      new Uint32Array(dst.buffer, dst.byteOffset, size * size));
+    rotateTurns(new Uint32Array(src.buffer, src.byteOffset, size * size), size,
+      new Uint32Array(dst.buffer, dst.byteOffset, size * size), k);
     return dst;
   }
-  if (channels === 1) {
-    for (let y = 0; y < size; y++) {
-      let from = (size - 1) * size + y, to = y * size;
-      for (let x = 0; x < size; x++, from -= size) dst[to++] = src[from];
-    }
-    return dst;
-  }
+  if (k === 0) { dst.set(src.subarray(0, size * size * channels)); return dst; }
+  const last = size - 1;
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      const from = ((size - 1 - x) * size + y) * channels;
-      const to = (y * size + x) * channels;
+      // source (column, row) of dst(x, y) after k turns
+      const sx = k === 1 ? y : k === 2 ? last - x : last - y;
+      const sy = k === 1 ? last - x : k === 2 ? last - y : x;
+      if (channels === 1) { dst[y * size + x] = src[sy * size + sx]; continue; }
+      const from = (sy * size + sx) * channels, to = (y * size + x) * channels;
       for (let c = 0; c < channels; c++) dst[to + c] = src[from + c];
     }
   }
   return dst;
+}
+
+/** Canvas transform [a, b, c, d, e, f] that turns a size × size bitmap by `turns` quarter turns. */
+export function turnTransform(turns, size) {
+  const k = ((Math.round(turns) % 4) + 4) % 4;
+  return [[1, 0, 0, 1, 0, 0], [0, 1, -1, 0, size, 0], [-1, 0, 0, -1, size, size], [0, -1, 1, 0, 0, size]][k];
 }
 
 /** Binary request body: uint32 LE JSON length | JSON utf-8 | depth bytes. */

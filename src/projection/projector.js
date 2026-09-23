@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createDepthRaster, rasterDepth, buildStructure, downsampleGray, rotateQuarter, packFrame } from './rasterDepth.js';
+import { createDepthRaster, rasterDepth, buildStructure, downsampleGray, rotateTurns, turnTransform, packFrame } from './rasterDepth.js';
 import { LIVE_PRESETS, pickSize, resolveLive, promptForReference } from '../presets.js';
 import { createReferenceUpload } from './reference.js';
 import { createLiveTransport } from './liveTransport.js';
@@ -65,7 +65,8 @@ export const PROJECTOR_DEFAULTS = {
   guidance: 1.1,
   emphasis: 0,        // 0 = the capture is the wind-shaped cloth alone; raise it to paint
                       //     the sculpture's relief into what the model sees
-  upright: true,      // turn the capture so the figure stands up for the model
+  turn: 1,            // quarter turns of the capture, so the figure stands up for the model
+                      // (1 for the horizontal veil, 0 once the veil is vertical)
   wander: true,
   drift: 0.35,
   wanderSpeed: 0.12,       // materials per second
@@ -94,6 +95,9 @@ export const PROJECTOR_DEFAULTS = {
 };
 
 const MAX_IN_FLIGHT = 12;
+
+/** Quarter turns of the capture sent to the model, by the angle shown in the panel. */
+export const TURN_OPTIONS = { '0°': 0, '90°': 1, '180°': 2, '270°': 3 };
 
 const MODE_LABELS = { woven: 'woven into fabric', projector: 'physical projector', locked: 'frame-locked pairs' };
 
@@ -457,6 +461,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       if (now - lastDepthPreview >= 125 || !params.running) { drawDepthPreview(pending.model); lastDepthPreview = now; }
       if (params.wander) state.driftPhase += Math.min(0.5, (now - lastPhaseTime) / 1000) * params.wanderSpeed;
       lastPhaseTime = now;
+      const turns = Number(params.turn) || 0;   // fixed per request, so the answer turns back the same way
       const frameId = ++state.requested;
       const referenceId = params.reference > 0 ? state.referenceId : null;
       const body = packFrame({
@@ -476,7 +481,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
         reset: state.resetCarry || undefined,
         reference: referenceId || undefined,
         reference_scale: params.reference,
-      }, params.upright ? rotateQuarter(pending.model, params.size, pending.turned) : pending.model);
+      }, turns ? rotateTurns(pending.model, params.size, pending.turned, turns) : pending.model);
       // across the internet the upload is most of the wait: send it compressed
       const payload = wireFormat(state.endpoint) === 'jpeg' ? await gzipped(body) : body;
       const tSend = performance.now();
@@ -499,8 +504,8 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
       const tBody = performance.now();
       if (!jpeg && received.length !== params.size * params.size * 4) throw new Error(`unexpected frame size ${received.length}`);
       const bitmap = jpeg ? await createImageBitmap(received, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' }) : null;
-      // turn the answer back onto the veil (one more quarter turn, see rotateQuarter)
-      const rgba = jpeg ? null : params.upright ? rotateQuarter(received, params.size, pending.rgba, 4) : received;
+      // turn the answer back onto the veil (the same turns again, see rotateQuarter)
+      const rgba = jpeg ? null : turns ? rotateTurns(received, params.size, pending.rgba, turns, 4) : received;
       const tDecoded = performance.now();
       if (epoch !== generation) { bitmap?.close(); return; }
       // with several on the wire an older image can land after a newer one: drop it
@@ -529,8 +534,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
         const ctx = slot.canvas.getContext('2d');
         // JPEG rows are already bottom-up. Rotate the bitmap without reading
         // pixels back to JS, then upload the canvas directly as the GL texture.
-        ctx.setTransform(params.upright ? 0 : 1, params.upright ? 1 : 0,
-          params.upright ? -1 : 0, params.upright ? 0 : 1, params.upright ? params.size : 0, 0);
+        ctx.setTransform(...turnTransform(turns, params.size));
         ctx.drawImage(bitmap, 0, 0);
         ctx.resetTransform();
         bitmap.close();
@@ -722,7 +726,7 @@ export function createProjector({ renderer, scene, viewer, solver, ribbon, mater
     folder.add(params, 'drift', 0, 1, 0.01).name('wander amount');
     folder.add(params, 'wanderSpeed', 0, 1, 0.01).name('wander speed');
     folder.add(params, 'emphasis', 0, 1, 0.01).name('sculpture in depth map');
-    folder.add(params, 'upright').name('figure upright for model');
+    folder.add(params, 'turn', TURN_OPTIONS).name('rotate for model');
     folder.add(params, 'physicsRelief', 0, 1, 0.01).name('sculpture in physics').onChange(applyPhysicsRelief);
     folder.add(params, 'power', 0, 4, 0.01).name('brightness').onChange(bindSlots);
     folder.add(params, 'catch', 0, 1, 0.01).name('fabric catch').onChange(bindSlots);

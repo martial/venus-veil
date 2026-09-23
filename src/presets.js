@@ -17,7 +17,7 @@ export const PRESETS = {
     post: { exposure: 1.0, bloomStrength: 0.35, bloomThreshold: 1.0, grain: 0.035, vignette: 0.35 },
     sculpture: { amplitude: 0.3, retention: 350, tintStrength: 0.35, detail: 0.35, figureOpacity: 0.7, veilOpacity: 0.3 },
     projector: {
-      enabled: true, surface: 'diffusion', mode: 'woven', upright: true,
+      enabled: true, surface: 'diffusion', mode: 'woven',
       prompt: 'a prehistoric Venus figurine, full body, heavy breasts, round belly, braided head, carved from weathered limestone, museum spotlight, black background',
       emphasis: 0, guidance: 1.1, power: 0.85, physicsRelief: 0.2, wander: false, blendMs: 90, mirror: true,
     },
@@ -35,7 +35,7 @@ export const PRESETS = {
     post: { exposure: 1.05, bloomStrength: 0.5, bloomThreshold: 0.9, grain: 0.03, vignette: 0.42 },
     sculpture: { amplitude: 0.32, retention: 420, tintStrength: 0.4, detail: 0.45, figureOpacity: 0.75, veilOpacity: 0.28 },
     projector: {
-      enabled: true, surface: 'diffusion', mode: 'woven', upright: true,
+      enabled: true, surface: 'diffusion', mode: 'woven',
       prompt: 'a cast bronze sculpture of a prehistoric Venus, oxidised turquoise and copper patina, engraved ornamental relief, museum spotlight, black background',
       emphasis: 0, guidance: 1.2, power: 1.0, physicsRelief: 0.25, wander: false, blendMs: 110, mirror: true,
     },
@@ -53,7 +53,7 @@ export const PRESETS = {
     post: { exposure: 1.12, bloomStrength: 0.42, bloomThreshold: 0.95, grain: 0.028, vignette: 0.38 },
     sculpture: { amplitude: 0.26, retention: 320, tintStrength: 0.3, detail: 0.3, figureOpacity: 0.65, veilOpacity: 0.32 },
     projector: {
-      enabled: true, surface: 'fabric', mode: 'woven', upright: true,
+      enabled: true, surface: 'fabric', mode: 'woven',
       prompt: 'a prehistoric Venus figurine carved in polished mammoth ivory and mother of pearl, luminous cream surface, fine carved relief, museum spotlight, black background',
       emphasis: 0, guidance: 1.0, power: 1.15, physicsRelief: 0.35, wander: false, blendMs: 90, mirror: true,
     },
@@ -71,7 +71,7 @@ export const PRESETS = {
     post: { exposure: 1.18, bloomStrength: 0.55, bloomThreshold: 0.8, grain: 0.032, vignette: 0.5 },
     sculpture: { amplitude: 0.28, retention: 300, tintStrength: 0.3, detail: 0.3, figureOpacity: 0.7, veilOpacity: 0.3 },
     projector: {
-      enabled: true, surface: 'diffusion', mode: 'woven', upright: true,
+      enabled: true, surface: 'diffusion', mode: 'woven',
       prompt: 'a prehistoric Venus figurine carved from translucent smoky black glass, silver veins, inner light, dark museum, black background',
       emphasis: 0, guidance: 1.3, power: 1.15, physicsRelief: 0.1, wander: false, blendMs: 80, mirror: true,
     },
@@ -89,7 +89,7 @@ export const PRESETS = {
     post: { exposure: 1.08, bloomStrength: 0.46, bloomThreshold: 0.88, grain: 0.03, vignette: 0.42 },
     sculpture: { amplitude: 0.3, retention: 360, tintStrength: 0.32, detail: 0.32, figureOpacity: 0.7, veilOpacity: 0.3 },
     projector: {
-      enabled: true, surface: 'diffusion', mode: 'woven', upright: true,
+      enabled: true, surface: 'diffusion', mode: 'woven',
       prompt: 'a prehistoric Venus figurine, full body, heavy breasts, round belly, braided head, carved relief, museum spotlight, black background',
       emphasis: 0, guidance: 1.15, power: 0.95, physicsRelief: 0.15, wander: true, drift: 0.65, wanderSpeed: 0.16, blendMs: 160, mirror: true,
     },

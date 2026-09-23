@@ -176,6 +176,18 @@ make the sheet crumple more; **Surface › edge glow / back-light** are the orga
 **Light › key / beam / exposure** set the mood; **Sculpture › relief / shape retention**
 control how strongly the body holds its form against the wind.
 
+## Veil orientation and image rotation
+
+**voile vertical** stands the veil up: the strip is turned in its own plane until it is plumb,
+scaled to fit the view and lifted above the floor, so a figure laid along its length stands.
+The view recentres on it. `?veil=vertical` opens that way. Switching resets the cloth and
+clears projected frames.
+
+**rotation image (visages)** turns the capture sent to the model by 0°, 90°, 180° or 270°, and
+turns the answer back onto the veil, so faces and figures reach the model the right way up.
+The horizontal veil uses 90° and the vertical veil 0°; switching the veil sets that value, and
+it can be changed afterwards. Looks do not change it.
+
 ## Live projection
 
 **Voile blanc · écran seul** keeps the floating fabric white while generation continues on
@@ -213,7 +225,7 @@ The published page can use the same local service (Chrome may ask to allow local
   studio; *fabric + light* keeps the lit veil and adds the projection on top.
 - **What the model sees:** the wind-shaped cloth alone. The capture is stretched over the
   veil's own near/far range so folds read as shape, with nothing painted into it, and it is
-  turned upright first (**figure upright for model**), because the model reads a standing form
+  turned upright first (**rotation image**, 90° for the horizontal veil), because the model reads a standing form
   far better than a reclining one. The figure comes from the prompt and from however much the
   sculpture shapes the cloth itself. **Sculpture in depth map** mixes the relief back into the
   capture for a more literal body; 0 by default.

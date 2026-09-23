@@ -5,13 +5,14 @@ import { applyModelPreset, applyMorphPreset, createModelSettingsBank, modelContr
 import { isFluxModel } from './projection/morph.js';
 import { LIVE_PRESETS, PRESETS, applyPreset, resolveLive } from './presets.js';
 import { QUALITIES, RESOLUTIONS } from './record.js';
+import { TURN_OPTIONS } from './projection/projector.js';
 
 /**
  * Control panel. A handful of essentials and five looks by default; everything
  * else lives behind "expert controls". Controls write straight into the live
  * parameter objects, with `apply` callbacks where a value needs re-uploading.
  */
-export function createUI({ wind, solver, material, studio, post, actions, sculpture, projector, quality, applyQuality, exportSettings, recording }) {
+export function createUI({ wind, solver, material, studio, post, actions, sculpture, projector, quality, applyQuality, exportSettings, recording, veil }) {
   const gui = new GUI({ title: 'venus veil', width: 290 });
   gui.domElement.classList.add('veil-gui');
   const context = { wind, solver, material, studio, post, sculpture, projector };
@@ -152,6 +153,16 @@ export function createUI({ wind, solver, material, studio, post, actions, sculpt
     const screenOnly = gui.add(projector.params, 'screenOnly').name('voile blanc · écran seul')
       .onChange(() => projector.refresh());
     screenOnly.domElement.title = 'Coché : voile blanc et image sur l’écran rond. Décoché : projection aussi sur le grand voile.';
+  }
+  if (veil && actions.setVertical) {
+    const vertical = gui.add(veil, 'vertical').name('voile vertical')
+      .onChange(v => { if (!actions.setVertical(v)) veil.vertical = !v; refresh(); });
+    vertical.domElement.title = 'Met le voile debout : la figure posée sur sa longueur se tient droite. Règle aussi la rotation de l’image à 0°.';
+  }
+  if (projector) {
+    const turn = gui.add(projector.params, 'turn', TURN_OPTIONS).name('rotation image (visages)')
+      .onChange(() => projector.state.resetCarry = true);
+    turn.domElement.title = 'Tourne par quarts de tour l’image envoyée au modèle, puis la remet sur le voile : choisir l’angle où les visages sont à l’endroit.';
   }
 
   // ---------------------------------------------------------------- expert

@@ -155,3 +155,36 @@ export function blurGrid(values, columns, rows, radius, scratch) {
   }
   return values;
 }
+
+/**
+ * Stands the strip up, or lays it back down, in place on `shape.base` / `shape.nBase`.
+ * Vertical turns the strip in its own plane (about z, towards the camera) until the line
+ * from its first to its last column is plumb, u = 0 at the top (where the sculpture fit puts
+ * the head of a figure laid along the length), so the figure stands; it is scaled to fit the view and lifted to `bottom` above the floor.
+ * Horizontal restores the original strip. Rest lengths follow from the solver's rebuildRest.
+ */
+export function orientRestShape(shape, vertical, { scale = 0.72, bottom = 0.35 } = {}) {
+  if (!shape.base0) { shape.base0 = shape.base.slice(); shape.nBase0 = shape.nBase.slice(); }
+  const { base, nBase, base0, nBase0, count } = shape;
+  shape.vertical = !!vertical;
+  if (!vertical) { base.set(base0); nBase.set(nBase0); return shape; }
+  const angle = -Math.PI / 2 - Math.atan2(shape.rise, shape.width);
+  const c = Math.cos(angle), s = Math.sin(angle);
+  let minY = Infinity, sumX = 0;
+  for (let i = 0; i < count; i++) {
+    const k = i * 3;
+    const x = base0[k], y = base0[k + 1];
+    base[k] = (x * c - y * s) * scale;
+    base[k + 1] = (x * s + y * c) * scale;
+    base[k + 2] = base0[k + 2] * scale;
+    const nx = nBase0[k], ny = nBase0[k + 1];
+    nBase[k] = nx * c - ny * s;
+    nBase[k + 1] = nx * s + ny * c;
+    nBase[k + 2] = nBase0[k + 2];
+    if (base[k + 1] < minY) minY = base[k + 1];
+    sumX += base[k];
+  }
+  const dx = -sumX / count, dy = bottom - minY;
+  for (let i = 0; i < count; i++) { base[i * 3] += dx; base[i * 3 + 1] += dy; }
+  return shape;
+}

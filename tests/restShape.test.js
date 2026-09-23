@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRestShape, applyRelief, computeGridNormals, ribbonPoint } from '../src/cloth/restShape.js';
+import { createRestShape, applyRelief, computeGridNormals, ribbonPoint, orientRestShape } from '../src/cloth/restShape.js';
 
 test('grid has the right size, uv range and unit normals', () => {
   const shape = createRestShape({ columns: 12, rows: 6 });
@@ -53,4 +53,32 @@ test('computeGridNormals of a flat xy grid is +z', () => {
   }
   const n = computeGridNormals(pos, columns, rows, new Float32Array(count * 3));
   for (let i = 0; i < count * 3; i += 3) assert.ok(Math.abs(n[i + 2] - 1) < 1e-6);
+});
+
+test('orientRestShape stands the strip up above the floor and lays it back down', () => {
+  const shape = createRestShape();
+  const original = shape.base.slice();
+  const lengths = shape => {
+    const out = [];
+    for (let i = 0; i < shape.columns; i++) {
+      const a = i * 3, b = (i + 1) * 3;
+      out.push(Math.hypot(shape.base[b] - shape.base[a], shape.base[b + 1] - shape.base[a + 1], shape.base[b + 2] - shape.base[a + 2]));
+    }
+    return out;
+  };
+  const before = lengths(shape);
+  orientRestShape(shape, true, { scale: 0.5, bottom: 0.4 });
+  assert.ok(shape.vertical);
+  // u = 0 (the end a laid figure's head is on) is at the top
+  assert.ok(shape.base[1] > shape.base[shape.columns * 3 + 1] + 1.5);
+  let minY = Infinity;
+  for (let i = 0; i < shape.count; i++) minY = Math.min(minY, shape.base[i * 3 + 1]);
+  assert.ok(Math.abs(minY - 0.4) < 1e-5);
+  lengths(shape).forEach((l, i) => assert.ok(Math.abs(l - before[i] * 0.5) < 1e-4));
+  for (let i = 0; i < shape.count; i++) {
+    const k = i * 3;
+    assert.ok(Math.abs(Math.hypot(shape.nBase[k], shape.nBase[k + 1], shape.nBase[k + 2]) - 1) < 1e-4);
+  }
+  orientRestShape(shape, false);
+  assert.deepEqual(Array.from(shape.base), Array.from(original));
 });

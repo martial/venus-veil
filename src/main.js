@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { createRestShape } from './cloth/restShape.js';
+import { createRestShape, orientRestShape } from './cloth/restShape.js';
 import { ClothSolver } from './cloth/solver.js';
 import { createWind } from './cloth/wind.js';
 import { createStepper } from './cloth/stepper.js';
@@ -317,6 +317,32 @@ async function start() {
     }
   }
 
+  // veil orientation: horizontal (the original strip) or stood up, so a figure laid
+  // along its length stands and reaches the model upright without turning the capture
+  const veil = { vertical: false };
+  const HORIZONTAL_TARGET_Y = controls.target.y;
+  function setVertical(vertical) {
+    if (recording.active) return false;
+    orientRestShape(shape, vertical);
+    solver.rebuildRest();
+    solver.reset();
+    stepper.reset();
+    const bounds = solver.bounds();
+    wind.setBounds(bounds.min, bounds.max, 1.2);
+    // keep the veil in the middle of the view
+    const lift = (vertical ? (bounds.min[1] + bounds.max[1]) / 2 : HORIZONTAL_TARGET_Y) - controls.target.y;
+    controls.target.y += lift;
+    camera.position.y += lift;
+    controls.update();
+    veil.vertical = vertical;
+    projector.params.turn = vertical ? 0 : 1;
+    projector.clearSlots();
+    projector.state.resetCarry = true;
+    ribbon.sync();
+    toast(vertical ? 'voile vertical' : 'voile horizontal');
+    return true;
+  }
+
   // actions
   let paused = false;
   const actions = {
@@ -334,11 +360,12 @@ async function start() {
     },
     toggleUI() { document.body.classList.toggle('ui-hidden'); },
     record: () => recordVideo(),
+    setVertical,
   };
   // the photo reaches the image model as an image prompt, where the service takes one
   sculpture.onPhoto = photo => projector.setReference(photo);
 
-  const ui = createUI({ wind, solver, material, studio, post, actions, sculpture, projector, quality, applyQuality, exportSettings, recording });
+  const ui = createUI({ wind, solver, material, studio, post, actions, sculpture, projector, quality, applyQuality, exportSettings, recording, veil });
   window.addEventListener('keydown', e => {
     if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.code === 'Space') { e.preventDefault(); actions.pause(); }
@@ -401,10 +428,11 @@ async function start() {
   const look = query.get('look');
   ui.applyLook(PRESET_NAMES.includes(look) ? look : ui.state.look);
   if (query.has('noprojector')) { projector.setEnabled(false); ui.refresh(); }
+  if (query.get('veil') === 'vertical') { setVertical(true); ui.refresh(); }
 
   window.__veil = {
     solver, wind, material, studio, post, camera, controls, sculpture, renderer, ribbon, stepper, projector, quality, applyQuality, ui,
-    exportSettings, record: recordVideo,
+    exportSettings, record: recordVideo, veil, setVertical,
     /** Advance the simulation by `seconds` of wind and render one frame (for headless checks). */
     simulate(seconds = 3, t0 = 0) {
       const dt = stepper.dt, steps = Math.round(seconds / dt);
