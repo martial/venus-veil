@@ -52,6 +52,13 @@
       #projector-panel figure { margin: 0; }
       #projector-panel .pp-row canvas { width: 118px; height: 118px; display: block; border: 1px solid var(--line); background: #060607; }
       #projector-panel figcaption { font-size: 10px; color: var(--muted); margin-top: 4px; letter-spacing: 0.3px; }
+      #pp-guide { display: block; margin-top: 10px; pointer-events: auto; }
+      #pp-guide span { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); letter-spacing: 0.3px; margin-bottom: 4px; }
+      #pp-guide span b { font-weight: normal; color: #8daf91; }
+      #pp-guide span b.pending { color: #d8c8a6; }
+      #pp-guide textarea { width: 100%; resize: vertical; min-height: 52px; max-height: 160px; padding: 8px 10px; font: 13px/1.4 "Helvetica Neue", Helvetica, Arial, sans-serif; color: #eae2d4; background: rgba(10, 10, 12, 0.88); border: 1px solid rgba(216, 200, 166, 0.45); border-radius: 2px; outline: none; }
+      #pp-guide textarea:focus { border-color: #d8c8a6; background: rgba(20, 18, 16, 0.94); }
+      #pp-guide textarea::placeholder { color: #6f6a61; }
       #pp-strip { display: flex; gap: 4px; margin-top: 8px; height: 36px; }
       #pp-strip canvas { width: 36px; height: 36px; border: 1px solid var(--line); display: block; }
       #pp-status { margin-top: 8px; font-size: 10px; color: #b9ad97; line-height: 1.4; }
@@ -70,6 +77,7 @@
         <figure><canvas id="pp-depth" width="256" height="256"></canvas><figcaption>veil depth · projector view</figcaption></figure>
         <figure><canvas id="pp-output" width="256" height="256"></canvas><figcaption id="pp-output-label">output</figcaption></figure>
       </div>
+      <label id="pp-guide"><span>guide the image <b id="pp-guide-state"></b></span><textarea id="pp-guide-input" rows="2" maxlength="200" spellcheck="false" placeholder="e.g. smiling, eyes closed, gold leaf"></textarea></label>
       <div id="pp-strip"></div>
       <div id="pp-status">projector offline</div>
     </div>

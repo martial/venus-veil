@@ -365,9 +365,10 @@ async function start() {
   // the photo reaches the image model as an image prompt, where the service takes one
   sculpture.onPhoto = photo => projector.setReference(photo);
 
-  const ui = createUI({ wind, solver, material, studio, post, actions, sculpture, projector, quality, applyQuality, exportSettings, recording, veil });
+  const ui = createUI({ wind, solver, material, studio, post, actions, sculpture, projector, quality, applyQuality, exportSettings, recording, veil,
+    guide: { input: $('pp-guide-input'), state: $('pp-guide-state') } });
   window.addEventListener('keydown', e => {
-    if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.code === 'Space') { e.preventDefault(); actions.pause(); }
     else if (e.key === 'r' || e.key === 'R') actions.reset();
     else if (e.key === 's' || e.key === 'S') actions.capture();

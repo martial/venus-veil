@@ -178,10 +178,12 @@ control how strongly the body holds its form against the wind.
 
 ## Guide
 
-**guide** is a free text field on the main panel that steers the current generation live.
+**guide the image** is a free text box under the depth and output previews that steers the
+current generation live.
 It goes in front of the look's prompt (and the photo's subject) on every frame instead of
 replacing it, so the material and subject stay. Typing applies after a 300 ms pause, and
-Enter applies at once. Empty returns to the look alone. It is per tab, survives look
+Enter applies at once (Shift+Enter is ignored, Escape leaves the box); the label shows
+*typing…* then *live*. Keyboard shortcuts are off while typing. Empty returns to the look alone. It is per tab, survives look
 changes, and is used by exports too. SDXS and DreamShaper read about 77 tokens of text, so
 the guide comes first; it is capped at 200 characters. Models that take the photo as an
 image prompt (SDXL, Klein) follow it less strongly, and material wandering dilutes it.
